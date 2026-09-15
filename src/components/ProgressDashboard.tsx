@@ -279,11 +279,11 @@ export function ProgressDashboard({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {profile.skills.map((skill) => {
+          {profile.skills.map((skill, idx) => {
             const isStrong = skill.level === 'Advanced' || skill.level === 'Expert';
             return (
               <div
-                key={skill.id}
+                key={`${skill.id || skill.name}-${idx}`}
                 className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2"
               >
                 <div className="flex items-center justify-between">
@@ -342,9 +342,9 @@ export function ProgressDashboard({
         </h3>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {achievements.map((ach) => (
+          {achievements.map((ach, idx) => (
             <div
-              key={ach.id}
+              key={`${ach.id}-${idx}`}
               className={`p-3.5 rounded-xl border text-center flex flex-col items-center justify-between transition-all ${
                 ach.unlocked
                   ? 'bg-slate-950 border-amber-500/30 shadow-sm'
@@ -379,9 +379,9 @@ export function ProgressDashboard({
         </div>
 
         <div className="space-y-2">
-          {stats.xpHistory.map((item) => (
+          {stats.xpHistory.map((item, idx) => (
             <div
-              key={item.id}
+              key={`${item.id}-${idx}`}
               className="flex items-center justify-between p-3 bg-slate-950 rounded-xl border border-slate-800/90 text-xs"
             >
               <div className="flex items-center gap-3">

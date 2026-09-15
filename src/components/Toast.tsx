@@ -17,10 +17,10 @@ export function ToastContainer({ toasts, onDismiss }: ToastProps) {
 
   return (
     <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm w-full">
-      {toasts.map((toast) => {
+      {toasts.map((toast, idx) => {
         return (
           <div
-            key={toast.id}
+            key={`${toast.id}-${idx}`}
             className="pointer-events-auto flex items-start gap-3 p-3.5 rounded-xl bg-slate-900/95 border border-slate-700 shadow-2xl text-slate-100 text-xs backdrop-blur animate-in slide-in-from-bottom-5 duration-200"
           >
             <div className="shrink-0 mt-0.5">

@@ -38,7 +38,22 @@ export default function App() {
   const [stats, setStats] = useState<UserStats>(() => {
     try {
       const saved = localStorage.getItem('skillmatcher_stats');
-      return saved ? JSON.parse(saved) : INITIAL_STATS;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && Array.isArray(parsed.xpHistory)) {
+          const seen = new Set<string>();
+          parsed.xpHistory = parsed.xpHistory.map((item: any, idx: number) => {
+            let id = item.id || `xp_${idx}_${Date.now()}`;
+            if (seen.has(id)) {
+              id = `${id}_${idx}_${Math.random().toString(36).slice(2, 6)}`;
+            }
+            seen.add(id);
+            return { ...item, id };
+          });
+        }
+        return parsed;
+      }
+      return INITIAL_STATS;
     } catch {
       return INITIAL_STATS;
     }
@@ -67,7 +82,7 @@ export default function App() {
   }, [stats]);
 
   const showToast = (toast: Omit<ToastMessage, 'id'>) => {
-    const id = 'toast_' + Date.now() + Math.random().toString(36).substr(2, 4);
+    const id = 'toast_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
     setToasts((prev) => [...prev, { ...toast, id }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -101,6 +116,8 @@ export default function App() {
         });
       }
 
+      const uniqueId = 'xp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+
       return {
         ...prev,
         xp: newXp,
@@ -108,7 +125,7 @@ export default function App() {
         levelTitle: newTitle,
         xpHistory: [
           {
-            id: 'x_' + Date.now(),
+            id: uniqueId,
             description,
             amount,
             timestamp: 'Just now',

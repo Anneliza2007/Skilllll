@@ -168,14 +168,14 @@ export function ProjectIdeaGenerator({
       {/* Projects List */}
       {!isLoading && (
         <div className="space-y-6">
-          {filteredProjects.map((project) => {
+          {filteredProjects.map((project, pIdx) => {
             const completedMilestones = activeProjectMilestones[project.id] || [];
             const isStarted = project.isStarted || completedMilestones.length > 0;
             const progress = Math.round((completedMilestones.length / project.milestones.length) * 100);
 
             return (
               <div
-                key={project.id}
+                key={`${project.id}-${pIdx}`}
                 id={`project-card-${project.id}`}
                 className="bg-slate-900 border border-slate-800 hover:border-slate-700/90 rounded-2xl p-6 space-y-5 transition-all shadow-md"
               >
@@ -245,11 +245,11 @@ export function ProjectIdeaGenerator({
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {project.milestones.map((m) => {
+                    {project.milestones.map((m, mIdx) => {
                       const isDone = completedMilestones.includes(m.step);
                       return (
                         <div
-                          key={m.step}
+                          key={`${project.id}-step-${m.step}-${mIdx}`}
                           onClick={() => handleToggleMilestone(project.id, project.title, m.step)}
                           className={`p-3 rounded-xl border text-xs transition-all cursor-pointer ${
                             isDone

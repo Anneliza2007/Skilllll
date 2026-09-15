@@ -55,7 +55,7 @@ export function ProfileModal({
     };
 
     const newSkill: StudentSkill = {
-      id: 'skill_' + Date.now(),
+      id: 'skill_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       name: newSkillName.trim(),
       category: newSkillCategory,
       level: newSkillLevel,
@@ -311,11 +311,11 @@ export function ProfileModal({
 
             {/* Existing Skills List */}
             <div className="flex flex-wrap gap-2 max-h-56 overflow-y-auto p-1">
-              {formData.skills.map((skill) => {
+              {formData.skills.map((skill, idx) => {
                 const isStrong = skill.level === 'Advanced' || skill.level === 'Expert';
                 return (
                   <div
-                    key={skill.id}
+                    key={`${skill.id || skill.name}-${idx}`}
                     className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs ${
                       isStrong
                         ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'

@@ -151,11 +151,11 @@ export function QuizSection({ profile, initialTopic, onQuizCompleted }: QuizSect
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {weakSkills.length > 0 ? (
-              weakSkills.map((skill) => {
+              weakSkills.map((skill, sIdx) => {
                 const isSelected = selectedTopic === skill.name;
                 return (
                   <button
-                    key={skill.id}
+                    key={`${skill.id || skill.name}-${sIdx}`}
                     onClick={() => setSelectedTopic(skill.name)}
                     className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
                       isSelected

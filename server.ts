@@ -29,11 +29,71 @@ function getGeminiClient(): GoogleGenAI | null {
   });
 }
 
+// In-memory cache & rate-limiting cooldown
+const responseCache = new Map<string, { timestamp: number; data: any }>();
+const CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
+let geminiCooldownUntil = 0;
+
+// Resilient Gemini content generator with multi-model fallback & rate-limit handling
+async function generateJsonWithFallback(prompt: string, schema: any, cacheKey: string): Promise<any | null> {
+  // Check in-memory cache first
+  const cached = responseCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  // If in rate-limit cooldown, gracefully return null to use smart heuristics
+  if (Date.now() < geminiCooldownUntil) {
+    return null;
+  }
+
+  const ai = getGeminiClient();
+  if (!ai) return null;
+
+  // Candidate models to try in order of preference
+  const candidateModels = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-3.8-flash"];
+
+  for (const modelName of candidateModels) {
+    try {
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: schema,
+        },
+      });
+
+      if (response.text) {
+        const parsed = JSON.parse(response.text);
+        responseCache.set(cacheKey, { timestamp: Date.now(), data: parsed });
+        return parsed;
+      }
+    } catch (err: any) {
+      const errMsg = String(err?.message || "");
+      const isRateLimited = errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("quota");
+      const isUnavailable = errMsg.includes("503") || errMsg.includes("UNAVAILABLE") || errMsg.includes("high demand");
+
+      if (isRateLimited || isUnavailable) {
+        // Cool down for 45 seconds so we don't spam rate-limited quota
+        geminiCooldownUntil = Date.now() + 45000;
+        // Do not dump raw JSON or console.warn to keep server logs clean
+        console.log(`[Gemini Engine] Rate limit or high demand on ${modelName}; activating curated heuristics mode.`);
+        break;
+      }
+      // If other error, continue to try next model
+    }
+  }
+
+  return null;
+}
+
 // Health check endpoint
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+    isRateLimited: Date.now() < geminiCooldownUntil,
     timestamp: new Date().toISOString(),
   });
 });
@@ -42,11 +102,9 @@ app.get("/api/health", (_req, res) => {
 app.post("/api/gemini/quiz", async (req, res) => {
   const { topic, weakSkills = [], studentLevel = "intermediate", count = 4 } = req.body;
   const targetTopic = topic || (weakSkills.length > 0 ? weakSkills[0] : "Web Development & Algorithms");
+  const cacheKey = `quiz_${targetTopic}_${studentLevel}_${count}`;
 
-  const ai = getGeminiClient();
-  if (ai) {
-    try {
-      const prompt = `Generate a ${count}-question diagnostic multiple-choice quiz targeted for a college student who identified "${targetTopic}" as their weak area (related weak skills: ${weakSkills.join(", ") || "general"}).
+  const prompt = `Generate a ${count}-question diagnostic multiple-choice quiz targeted for a college student who identified "${targetTopic}" as their weak area (related weak skills: ${weakSkills.join(", ") || "general"}).
 Student experience level: ${studentLevel}.
 Requirements:
 - Questions must be practical, testing real-world understanding or debugging code, not trivial trivia.
@@ -55,48 +113,37 @@ Requirements:
 - A "quickFixTip" (1-2 sentence golden takeaway to solidify this concept immediately).
 `;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              topic: { type: Type.STRING },
-              skillFocus: { type: Type.STRING },
-              questions: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    question: { type: Type.STRING },
-                    codeSnippet: { type: Type.STRING, description: "Optional code snippet if relevant or empty string" },
-                    options: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                    },
-                    correctAnswerIndex: { type: Type.INTEGER },
-                    explanation: { type: Type.STRING },
-                    quickFixTip: { type: Type.STRING },
-                  },
-                  required: ["id", "question", "options", "correctAnswerIndex", "explanation", "quickFixTip"],
-                },
-              },
+  const schema = {
+    type: Type.OBJECT,
+    properties: {
+      topic: { type: Type.STRING },
+      skillFocus: { type: Type.STRING },
+      questions: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            question: { type: Type.STRING },
+            codeSnippet: { type: Type.STRING, description: "Optional code snippet if relevant or empty string" },
+            options: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
             },
-            required: ["topic", "skillFocus", "questions"],
+            correctAnswerIndex: { type: Type.INTEGER },
+            explanation: { type: Type.STRING },
+            quickFixTip: { type: Type.STRING },
           },
+          required: ["id", "question", "options", "correctAnswerIndex", "explanation", "quickFixTip"],
         },
-      });
+      },
+    },
+    required: ["topic", "skillFocus", "questions"],
+  };
 
-      if (response.text) {
-        const parsed = JSON.parse(response.text);
-        return res.json({ success: true, data: parsed, source: "gemini" });
-      }
-    } catch (err: any) {
-      console.warn("Gemini quiz generation fallback triggered:", err?.message);
-    }
+  const aiResult = await generateJsonWithFallback(prompt, schema, cacheKey);
+  if (aiResult && Array.isArray(aiResult.questions) && aiResult.questions.length > 0) {
+    return res.json({ success: true, data: aiResult, source: "gemini" });
   }
 
   // Fallback diagnostic quiz
@@ -213,10 +260,9 @@ app.post("/api/gemini/optimize-profile", async (req, res) => {
     targetCompanyType = "Tech Startups & Top Companies",
   } = req.body;
 
-  const ai = getGeminiClient();
-  if (ai) {
-    try {
-      const prompt = `Act as an elite tech recruiter and career coach for college students and recent grads.
+  const cacheKey = `opt_${targetRole}_${JSON.stringify(skills.slice(0, 4))}_${(currentBullets[0] || "").slice(0, 30)}`;
+
+  const prompt = `Act as an elite tech recruiter and career coach for college students and recent grads.
 Student Profile:
 - Target Role: ${targetRole}
 - Target Company Type: ${targetCompanyType}
@@ -232,64 +278,53 @@ Output:
 4. ATS Keyword Alignment: Top 6 keywords the student MUST integrate for ${targetRole}.
 `;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              optimizedBullets: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    original: { type: Type.STRING },
-                    improved: { type: Type.STRING },
-                    metricsHighlighted: { type: Type.STRING },
-                    rationale: { type: Type.STRING },
-                  },
-                  required: ["original", "improved", "metricsHighlighted", "rationale"],
-                },
-              },
-              linkedInHeadlines: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    style: { type: Type.STRING },
-                    headline: { type: Type.STRING },
-                  },
-                  required: ["style", "headline"],
-                },
-              },
-              linkedInAbout: { type: Type.STRING },
-              atsKeywords: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    keyword: { type: Type.STRING },
-                    importance: { type: Type.STRING },
-                    inProfile: { type: Type.BOOLEAN },
-                  },
-                  required: ["keyword", "importance", "inProfile"],
-                },
-              },
-            },
-            required: ["optimizedBullets", "linkedInHeadlines", "linkedInAbout", "atsKeywords"],
+  const schema = {
+    type: Type.OBJECT,
+    properties: {
+      optimizedBullets: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            original: { type: Type.STRING },
+            improved: { type: Type.STRING },
+            metricsHighlighted: { type: Type.STRING },
+            rationale: { type: Type.STRING },
           },
+          required: ["original", "improved", "metricsHighlighted", "rationale"],
         },
-      });
+      },
+      linkedInHeadlines: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            style: { type: Type.STRING },
+            headline: { type: Type.STRING },
+          },
+          required: ["style", "headline"],
+        },
+      },
+      linkedInAbout: { type: Type.STRING },
+      atsKeywords: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            keyword: { type: Type.STRING },
+            importance: { type: Type.STRING },
+            inProfile: { type: Type.BOOLEAN },
+          },
+          required: ["keyword", "importance", "inProfile"],
+        },
+      },
+    },
+    required: ["optimizedBullets", "linkedInHeadlines", "linkedInAbout", "atsKeywords"],
+  };
 
-      if (response.text) {
-        const parsed = JSON.parse(response.text);
-        return res.json({ success: true, data: parsed, source: "gemini" });
-      }
-    } catch (err: any) {
-      console.warn("Gemini profile optimization fallback triggered:", err?.message);
-    }
+  const aiResult = await generateJsonWithFallback(prompt, schema, cacheKey);
+  if (aiResult && Array.isArray(aiResult.optimizedBullets) && aiResult.optimizedBullets.length > 0) {
+    return res.json({ success: true, data: aiResult, source: "gemini" });
   }
 
   // Fallback optimization
@@ -350,11 +385,9 @@ Currently seeking ${targetRole} opportunities where I can tackle challenging tec
 app.post("/api/gemini/generate-projects", async (req, res) => {
   const { strongSkills = [], interests = [], targetRole = "Software Engineer" } = req.body;
   const skillsList = strongSkills.length > 0 ? strongSkills : ["React", "TypeScript", "Python", "SQL"];
+  const cacheKey = `proj_${skillsList.sort().join("_")}_${targetRole}_${interests.slice(0, 2).join("_")}`;
 
-  const ai = getGeminiClient();
-  if (ai) {
-    try {
-      const prompt = `Create 3 impressive, standout portfolio project ideas tailored for a student's strongest skills: ${skillsList.join(", ")}.
+  const prompt = `Create 3 impressive, standout portfolio project ideas tailored for a student's strongest skills: ${skillsList.join(", ")}.
 Student career interests: ${interests.join(", ") || targetRole}.
 Target role: ${targetRole}.
 Requirements for each project:
@@ -363,59 +396,48 @@ Requirements for each project:
 - Include: title, tagline, estimatedTime, difficulty, techStack array, problemSolved, 3-step milestone roadmap, and exact resume pitch bullet point.
 `;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              projects: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    title: { type: Type.STRING },
-                    tagline: { type: Type.STRING },
-                    difficulty: { type: Type.STRING },
-                    estimatedHours: { type: Type.STRING },
-                    techStack: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                    },
-                    problemSolved: { type: Type.STRING },
-                    milestones: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          step: { type: Type.INTEGER },
-                          title: { type: Type.STRING },
-                          description: { type: Type.STRING },
-                        },
-                        required: ["step", "title", "description"],
-                      },
-                    },
-                    resumePitchBullet: { type: Type.STRING },
-                  },
-                  required: ["id", "title", "tagline", "difficulty", "estimatedHours", "techStack", "problemSolved", "milestones", "resumePitchBullet"],
+  const schema = {
+    type: Type.OBJECT,
+    properties: {
+      projects: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            title: { type: Type.STRING },
+            tagline: { type: Type.STRING },
+            difficulty: { type: Type.STRING },
+            estimatedHours: { type: Type.STRING },
+            techStack: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+            },
+            problemSolved: { type: Type.STRING },
+            milestones: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  step: { type: Type.INTEGER },
+                  title: { type: Type.STRING },
+                  description: { type: Type.STRING },
                 },
+                required: ["step", "title", "description"],
               },
             },
-            required: ["projects"],
+            resumePitchBullet: { type: Type.STRING },
           },
+          required: ["id", "title", "tagline", "difficulty", "estimatedHours", "techStack", "problemSolved", "milestones", "resumePitchBullet"],
         },
-      });
+      },
+    },
+    required: ["projects"],
+  };
 
-      if (response.text) {
-        const parsed = JSON.parse(response.text);
-        return res.json({ success: true, data: parsed.projects, source: "gemini" });
-      }
-    } catch (err: any) {
-      console.warn("Gemini project generator fallback triggered:", err?.message);
-    }
+  const aiResult = await generateJsonWithFallback(prompt, schema, cacheKey);
+  if (aiResult && Array.isArray(aiResult.projects) && aiResult.projects.length > 0) {
+    return res.json({ success: true, data: aiResult.projects, source: "gemini" });
   }
 
   // Fallback projects tailored to strong skills
@@ -473,11 +495,10 @@ Requirements for each project:
 // Endpoint: AI-Ranked Internship Matcher
 app.post("/api/gemini/match-internships", async (req, res) => {
   const { studentSkills = [], interests = [], experience = "", internships = [] } = req.body;
+  const cacheKey = `match_${studentSkills.map((s: any) => `${s.name}_${s.level}`).sort().join("_")}_${internships.map((j: any) => j.id).sort().join("_")}`;
 
-  const ai = getGeminiClient();
-  if (ai && internships.length > 0) {
-    try {
-      const prompt = `You are an AI Internship Matchmaker. Given this student's profile and a list of available internships, evaluate each internship and provide a match score (0-100), match reasons, missing skills to learn, and custom interview prep tip.
+  if (internships.length > 0) {
+    const prompt = `You are an AI Internship Matchmaker. Given this student's profile and a list of available internships, evaluate each internship and provide a match score (0-100), match reasons, missing skills to learn, and custom interview prep tip.
 Student Profile:
 - Skills: ${studentSkills.map((s: any) => `${s.name} (${s.level})`).join(", ")}
 - Interests: ${interests.join(", ")}
@@ -487,46 +508,36 @@ Internships to score:
 ${internships.map((job: any) => `ID: ${job.id} | Role: ${job.title} at ${job.company} | Required: ${job.requiredSkills.join(", ")} | Description: ${job.description}`).join("\n\n")}
 `;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
+    const schema = {
+      type: Type.OBJECT,
+      properties: {
+        matches: {
+          type: Type.ARRAY,
+          items: {
             type: Type.OBJECT,
             properties: {
-              matches: {
+              internshipId: { type: Type.STRING },
+              matchScore: { type: Type.INTEGER },
+              matchReasons: {
                 type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    internshipId: { type: Type.STRING },
-                    matchScore: { type: Type.INTEGER },
-                    matchReasons: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                    },
-                    missingSkills: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                    },
-                    prepTip: { type: Type.STRING },
-                  },
-                  required: ["internshipId", "matchScore", "matchReasons", "missingSkills", "prepTip"],
-                },
+                items: { type: Type.STRING },
               },
+              missingSkills: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+              prepTip: { type: Type.STRING },
             },
-            required: ["matches"],
+            required: ["internshipId", "matchScore", "matchReasons", "missingSkills", "prepTip"],
           },
         },
-      });
+      },
+      required: ["matches"],
+    };
 
-      if (response.text) {
-        const parsed = JSON.parse(response.text);
-        return res.json({ success: true, data: parsed.matches, source: "gemini" });
-      }
-    } catch (err: any) {
-      console.warn("Gemini internship matcher fallback triggered:", err?.message);
+    const aiResult = await generateJsonWithFallback(prompt, schema, cacheKey);
+    if (aiResult && Array.isArray(aiResult.matches) && aiResult.matches.length > 0) {
+      return res.json({ success: true, data: aiResult.matches, source: "gemini" });
     }
   }
 

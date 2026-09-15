@@ -166,7 +166,7 @@ export function InternshipMatcher({
 
       {/* Internships Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {filtered.map((job) => {
+        {filtered.map((job, jIdx) => {
           const score = job.matchScore || 75;
           const scoreColor =
             score >= 85
@@ -177,7 +177,7 @@ export function InternshipMatcher({
 
           return (
             <div
-              key={job.id}
+              key={`${job.id}-${jIdx}`}
               id={`internship-card-${job.id}`}
               className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl p-5 flex flex-col justify-between transition-all duration-200 shadow-md hover:shadow-lg hover:shadow-sky-500/5 group"
             >

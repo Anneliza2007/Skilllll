@@ -151,3 +151,13 @@ export interface UserStats {
     timestamp: string;
   }[];
 }
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'student' | 'admin';
+  provider: 'credentials' | 'google';
+  avatar?: string;
+  joinedAt: string;
+}

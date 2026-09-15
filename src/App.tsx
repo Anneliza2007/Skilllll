@@ -9,6 +9,8 @@ import { PracticePlatforms } from './components/PracticePlatforms';
 import { PromptLabModal } from './components/PromptLabModal';
 import { ProfileModal } from './components/ProfileModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
+import { LoginScreen } from './components/LoginScreen';
+import { AdminDashboard } from './components/AdminDashboard';
 import {
   INITIAL_PROFILE,
   INITIAL_INTERNSHIPS,
@@ -16,9 +18,19 @@ import {
   DEFAULT_DAILY_TODOS,
   LEVEL_THRESHOLDS,
 } from './data/mockData';
-import { StudentProfile, Internship, UserStats, SkillLevel, DailyTodoItem, PracticePlatform } from './types';
+import { StudentProfile, Internship, UserStats, SkillLevel, DailyTodoItem, PracticePlatform, AuthUser } from './types';
 
 export default function App() {
+  // Authentication state
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    try {
+      const saved = localStorage.getItem('skillmatcher_auth_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
   // Load state from localStorage or fallback to mock data
   const [profile, setProfile] = useState<StudentProfile>(() => {
     try {
@@ -70,7 +82,7 @@ export default function App() {
   });
 
   const [activeTab, setActiveTab] = useState<
-    'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms'
+    'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms' | 'admin'
   >('internships');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
@@ -79,6 +91,15 @@ export default function App() {
   const [quizInitialTopic, setQuizInitialTopic] = useState<string | undefined>(undefined);
   const [resumeInitialRole, setResumeInitialRole] = useState<string | undefined>(undefined);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Persist auth user changes
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('skillmatcher_auth_user', JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem('skillmatcher_auth_user');
+    }
+  }, [currentUser]);
 
   // Persist state changes
   useEffect(() => {
@@ -454,12 +475,78 @@ export default function App() {
     });
   };
 
+  // Auth Handlers
+  const handleLoginSuccess = (user: AuthUser) => {
+    setCurrentUser(user);
+    if (user.role === 'admin') {
+      setActiveTab('admin');
+      showToast({
+        type: 'success',
+        title: 'Administrator Session Active',
+        description: 'Welcome back! You have full access to manage roles and view telemetry.',
+      });
+    } else {
+      setActiveTab('internships');
+      showToast({
+        type: 'success',
+        title: `Welcome, ${user.name}!`,
+        description: `Signed in successfully via ${user.provider === 'google' ? 'Google Mail' : 'Credentials'}.`,
+      });
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setActiveTab('internships');
+    showToast({
+      type: 'info',
+      title: 'Signed Out',
+      description: 'You have been safely signed out. Returning to login screen.',
+    });
+  };
+
+  // Admin handlers
+  const handleAdminAddInternship = (newIntern: Internship) => {
+    setInternships((prev) => [newIntern, ...prev]);
+    showToast({
+      type: 'success',
+      title: 'New Internship Published',
+      description: `${newIntern.title} at ${newIntern.company} has been added to the database.`,
+    });
+  };
+
+  const handleAdminDeleteInternship = (id: string) => {
+    setInternships((prev) => prev.filter((item) => item.id !== id));
+    showToast({
+      type: 'info',
+      title: 'Internship Removed',
+      description: 'Role was removed from the active student matching pool.',
+    });
+  };
+
+  const handleAdminResetMockData = () => {
+    setInternships(INITIAL_INTERNSHIPS);
+    setProfile(INITIAL_PROFILE);
+    showToast({
+      type: 'success',
+      title: 'Demo Data Restored',
+      description: 'Internships and sample student records have been reset to defaults.',
+    });
+  };
+
+  // If user is not logged in, show LoginScreen
+  if (!currentUser) {
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-sky-500/30 selection:text-sky-200">
       {/* Top Header */}
       <Header
         profile={profile}
         stats={stats}
+        currentUser={currentUser}
+        onLogout={handleLogout}
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         onOpenProfile={() => setIsProfileOpen(true)}
@@ -528,6 +615,18 @@ export default function App() {
             onOpenPromptLab={handleOpenPromptLab}
             onUseStreakFreeze={handleUseStreakFreeze}
             onShowToast={showToast}
+          />
+        )}
+
+        {activeTab === 'admin' && currentUser?.role === 'admin' && (
+          <AdminDashboard
+            currentUser={currentUser}
+            internships={internships}
+            onAddInternship={handleAdminAddInternship}
+            onDeleteInternship={handleAdminDeleteInternship}
+            onResetMockData={handleAdminResetMockData}
+            stats={stats}
+            profile={profile}
           />
         )}
       </main>

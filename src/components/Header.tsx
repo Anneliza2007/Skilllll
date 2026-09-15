@@ -1,12 +1,14 @@
-import { Flame, Sparkles, User, Award, CheckCircle2 } from 'lucide-react';
-import { StudentProfile, UserStats } from '../types';
+import { Flame, Sparkles, User, Award, CheckCircle2, Shield, LogOut } from 'lucide-react';
+import { StudentProfile, UserStats, AuthUser } from '../types';
 import { LEVEL_THRESHOLDS } from '../data/mockData';
 
 interface HeaderProps {
   profile: StudentProfile;
   stats: UserStats;
-  activeTab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms';
-  onSelectTab: (tab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms') => void;
+  currentUser?: AuthUser | null;
+  onLogout?: () => void;
+  activeTab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms' | 'admin';
+  onSelectTab: (tab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms' | 'admin') => void;
   onOpenProfile: () => void;
   onClaimDailyStreak: () => void;
   onOpenPromptLab?: (promptId?: string) => void;
@@ -15,6 +17,8 @@ interface HeaderProps {
 export function Header({
   profile,
   stats,
+  currentUser,
+  onLogout,
   activeTab,
   onSelectTab,
   onOpenProfile,
@@ -107,22 +111,48 @@ export function Header({
               </span>
             </div>
 
-            {/* User Profile Pill */}
-            <button
-              id="header-profile-btn"
-              onClick={onOpenProfile}
-              className="flex items-center space-x-2 pl-2 pr-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700/90 border border-slate-700 text-slate-200 transition-colors text-xs font-medium cursor-pointer"
-            >
-              <div className="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center justify-center font-bold text-xs">
-                {profile.name.charAt(0)}
-              </div>
-              <div className="text-left hidden sm:block">
-                <p className="font-semibold text-xs leading-none text-slate-100">{profile.name}</p>
-                <p className="text-[10px] text-slate-400 truncate max-w-[110px] leading-tight">
-                  {profile.skills.length} skills added
-                </p>
-              </div>
-            </button>
+            {/* User Profile Pill & Logout */}
+            <div className="flex items-center space-x-1.5">
+              <button
+                id="header-profile-btn"
+                onClick={onOpenProfile}
+                className="flex items-center space-x-2 pl-2 pr-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700/90 border border-slate-700 text-slate-200 transition-colors text-xs font-medium cursor-pointer"
+              >
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
+                  currentUser?.role === 'admin'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                }`}>
+                  {currentUser?.role === 'admin' ? <Shield className="w-3.5 h-3.5" /> : (currentUser?.name || profile.name).charAt(0)}
+                </div>
+                <div className="text-left hidden sm:block">
+                  <div className="flex items-center space-x-1.5">
+                    <p className="font-semibold text-xs leading-none text-slate-100">
+                      {currentUser?.name || profile.name}
+                    </p>
+                    {currentUser?.role === 'admin' && (
+                      <span className="text-[9px] uppercase font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        Admin
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-400 truncate max-w-[110px] leading-tight mt-0.5">
+                    {currentUser?.email || `${profile.skills.length} skills added`}
+                  </p>
+                </div>
+              </button>
+
+              {onLogout && (
+                <button
+                  id="header-logout-btn"
+                  onClick={onLogout}
+                  className="p-2 rounded-lg bg-slate-800/80 hover:bg-rose-500/20 hover:text-rose-300 border border-slate-700 text-slate-400 transition-colors cursor-pointer"
+                  title="Sign out of account"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -136,6 +166,9 @@ export function Header({
               { id: 'projects', label: 'Strong Skill Projects', icon: '💡' },
               { id: 'platforms', label: 'Out-of-Comfort Practice', icon: '🚀' },
               { id: 'dashboard', label: 'Progress & Streaks', icon: '📈' },
+              ...(currentUser?.role === 'admin'
+                ? [{ id: 'admin', label: 'Admin Center', icon: '🛡️' }]
+                : []),
             ].map((tab) => {
               const isActive = activeTab === tab.id;
               return (
@@ -145,7 +178,9 @@ export function Header({
                   onClick={() => onSelectTab(tab.id as any)}
                   className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                     isActive
-                      ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
+                      ? tab.id === 'admin'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                        : 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
                   }`}
                 >

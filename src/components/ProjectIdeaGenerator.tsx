@@ -18,12 +18,14 @@ interface ProjectIdeaGeneratorProps {
   profile: StudentProfile;
   onProjectStarted: (title: string) => void;
   onMilestoneCompleted: (projectName: string, step: number) => void;
+  onOpenPromptLab?: (promptId?: string) => void;
 }
 
 export function ProjectIdeaGenerator({
   profile,
   onProjectStarted,
   onMilestoneCompleted,
+  onOpenPromptLab,
 }: ProjectIdeaGeneratorProps) {
   const strongSkills = profile.skills
     .filter((s) => s.level === 'Advanced' || s.level === 'Expert')
@@ -107,18 +109,30 @@ export function ProjectIdeaGenerator({
             </p>
           </div>
 
-          <button
-            onClick={fetchProjects}
-            disabled={isLoading}
-            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg transition-all cursor-pointer ${
-              isLoading
-                ? 'bg-slate-800 text-slate-400 cursor-not-allowed'
-                : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20'
-            }`}
-          >
-            <Sparkles className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-            <span>{isLoading ? 'Ideating...' : 'Generate New Ideas'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenPromptLab && (
+              <button
+                onClick={() => onOpenPromptLab('prompt-strong-project')}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                <span>Prompt Lab</span>
+              </button>
+            )}
+
+            <button
+              onClick={fetchProjects}
+              disabled={isLoading}
+              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg transition-all cursor-pointer ${
+                isLoading
+                  ? 'bg-slate-800 text-slate-400 cursor-not-allowed'
+                  : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20'
+              }`}
+            >
+              <Sparkles className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>{isLoading ? 'Ideating...' : 'Generate New Ideas'}</span>
+            </button>
+          </div>
         </div>
       </div>
 

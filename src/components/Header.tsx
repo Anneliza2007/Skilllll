@@ -5,10 +5,11 @@ import { LEVEL_THRESHOLDS } from '../data/mockData';
 interface HeaderProps {
   profile: StudentProfile;
   stats: UserStats;
-  activeTab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard';
-  onSelectTab: (tab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard') => void;
+  activeTab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms';
+  onSelectTab: (tab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms') => void;
   onOpenProfile: () => void;
   onClaimDailyStreak: () => void;
+  onOpenPromptLab?: (promptId?: string) => void;
 }
 
 export function Header({
@@ -18,6 +19,7 @@ export function Header({
   onSelectTab,
   onOpenProfile,
   onClaimDailyStreak,
+  onOpenPromptLab,
 }: HeaderProps) {
   const currentLevelInfo =
     LEVEL_THRESHOLDS.find((l) => l.level === stats.level) || LEVEL_THRESHOLDS[0];
@@ -125,31 +127,45 @@ export function Header({
         </div>
 
         {/* Navigation Tabs */}
-        <nav className="flex space-x-1 sm:space-x-2 overflow-x-auto py-2 border-t border-slate-800/80 no-scrollbar">
-          {[
-            { id: 'internships', label: 'Ranked Internships', icon: '🎯' },
-            { id: 'quizzes', label: 'Weak Topic Quizzes', icon: '⚡' },
-            { id: 'resume', label: 'Resume & LinkedIn AI', icon: '📝' },
-            { id: 'projects', label: 'Strong Skill Projects', icon: '💡' },
-            { id: 'dashboard', label: 'Progress & Streaks', icon: '📈' },
-          ].map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                id={`nav-tab-${tab.id}`}
-                onClick={() => onSelectTab(tab.id as any)}
-                className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                  isActive
-                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
-                }`}
-              >
-                <span>{tab.icon}</span>
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
+        <nav className="flex items-center justify-between overflow-x-auto py-2 border-t border-slate-800/80 no-scrollbar">
+          <div className="flex space-x-1 sm:space-x-2">
+            {[
+              { id: 'internships', label: 'Ranked Internships', icon: '🎯' },
+              { id: 'quizzes', label: 'Weak & Strong Quizzes', icon: '⚡' },
+              { id: 'resume', label: 'Resume & LinkedIn AI', icon: '📝' },
+              { id: 'projects', label: 'Strong Skill Projects', icon: '💡' },
+              { id: 'platforms', label: 'Out-of-Comfort Practice', icon: '🚀' },
+              { id: 'dashboard', label: 'Progress & Streaks', icon: '📈' },
+            ].map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  id={`nav-tab-${tab.id}`}
+                  onClick={() => onSelectTab(tab.id as any)}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
+                  }`}
+                >
+                  <span>{tab.icon}</span>
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {onOpenPromptLab && (
+            <button
+              onClick={() => onOpenPromptLab()}
+              className="hidden lg:flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800/90 hover:bg-slate-700 text-amber-300 border border-amber-500/30 text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ml-2"
+              title="Open AI Prompt Lab for custom ChatGPT / Claude / Gemini career prompts"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Career Prompt Lab</span>
+            </button>
+          )}
         </nav>
       </div>
     </header>

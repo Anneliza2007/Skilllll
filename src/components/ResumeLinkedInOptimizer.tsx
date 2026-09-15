@@ -19,12 +19,14 @@ interface ResumeLinkedInOptimizerProps {
   profile: StudentProfile;
   initialRole?: string;
   onProfileOptimized: (xpEarned: number) => void;
+  onOpenPromptLab?: (promptId?: string) => void;
 }
 
 export function ResumeLinkedInOptimizer({
   profile,
   initialRole,
   onProfileOptimized,
+  onOpenPromptLab,
 }: ResumeLinkedInOptimizerProps) {
   const [targetRole, setTargetRole] = useState(initialRole || profile.targetRole);
   const [customBulletInput, setCustomBulletInput] = useState('');
@@ -103,6 +105,16 @@ export function ResumeLinkedInOptimizer({
           </div>
 
           <div className="flex items-center gap-2">
+            {onOpenPromptLab && (
+              <button
+                onClick={() => onOpenPromptLab('prompt-resume-xyz')}
+                className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-sky-400" />
+                <span>Prompt Lab</span>
+              </button>
+            )}
+
             <button
               id="run-optimize-button"
               onClick={() => handleRunOptimization()}

@@ -108,6 +108,28 @@ export interface ProjectIdea {
   isStarted?: boolean;
 }
 
+export interface DailyTodoItem {
+  id: string;
+  title: string;
+  category: 'quiz' | 'resume' | 'project' | 'practice' | 'custom';
+  xpReward: number;
+  completed: boolean;
+  isCustom?: boolean;
+}
+
+export interface PracticePlatform {
+  id: string;
+  name: string;
+  category: 'DevOps & Systems' | 'Low-Level & Core CS' | 'Security & Reverse Engineering' | 'UI & Visual Precision' | 'Real-World Data & ML' | 'Live Technical Pressure';
+  tagline: string;
+  whyOutOfComfortZone: string;
+  skillsUnlocked: string[];
+  difficulty: 'Challenging' | 'Steep' | 'Hardcore';
+  url: string;
+  exampleChallenge: string;
+  estimatedTimeToFirstWin: string;
+}
+
 export interface UserStats {
   xp: number;
   level: number;
@@ -116,10 +138,12 @@ export interface UserStats {
   longestStreak: number;
   lastActiveDate: string; // YYYY-MM-DD
   checkedInToday: boolean;
+  streakFreezesAvailable: number;
   quizzesCompleted: number;
   projectsStarted: number;
   resumesOptimized: number;
   internshipsApplied: number;
+  dailyTodos?: DailyTodoItem[];
   xpHistory: {
     id: string;
     description: string;

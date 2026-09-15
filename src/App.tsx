@@ -5,15 +5,18 @@ import { QuizSection } from './components/QuizSection';
 import { ResumeLinkedInOptimizer } from './components/ResumeLinkedInOptimizer';
 import { ProjectIdeaGenerator } from './components/ProjectIdeaGenerator';
 import { ProgressDashboard } from './components/ProgressDashboard';
+import { PracticePlatforms } from './components/PracticePlatforms';
+import { PromptLabModal } from './components/PromptLabModal';
 import { ProfileModal } from './components/ProfileModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import {
   INITIAL_PROFILE,
   INITIAL_INTERNSHIPS,
   INITIAL_STATS,
+  DEFAULT_DAILY_TODOS,
   LEVEL_THRESHOLDS,
 } from './data/mockData';
-import { StudentProfile, Internship, UserStats, SkillLevel } from './types';
+import { StudentProfile, Internship, UserStats, SkillLevel, DailyTodoItem, PracticePlatform } from './types';
 
 export default function App() {
   // Load state from localStorage or fallback to mock data
@@ -51,6 +54,13 @@ export default function App() {
             return { ...item, id };
           });
         }
+        // Ensure dailyTodos array exists
+        if (!parsed.dailyTodos || !Array.isArray(parsed.dailyTodos)) {
+          parsed.dailyTodos = DEFAULT_DAILY_TODOS;
+        }
+        if (parsed.streakFreezesAvailable === undefined) {
+          parsed.streakFreezesAvailable = 1;
+        }
         return parsed;
       }
       return INITIAL_STATS;
@@ -60,9 +70,11 @@ export default function App() {
   });
 
   const [activeTab, setActiveTab] = useState<
-    'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard'
+    'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms'
   >('internships');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
+  const [promptLabInitialId, setPromptLabInitialId] = useState<string | undefined>(undefined);
   const [isAiMatching, setIsAiMatching] = useState(false);
   const [quizInitialTopic, setQuizInitialTopic] = useState<string | undefined>(undefined);
   const [resumeInitialRole, setResumeInitialRole] = useState<string | undefined>(undefined);
@@ -326,6 +338,122 @@ export default function App() {
     addXp(25, `Completed Milestone ${step} for ${projectName}`);
   };
 
+  // Open Prompt Lab Modal with optional specific prompt
+  const handleOpenPromptLab = (promptId?: string) => {
+    setPromptLabInitialId(promptId);
+    setIsPromptLabOpen(true);
+  };
+
+  // Toggle Daily Todo completion
+  const handleToggleTodo = (todoId: string) => {
+    setStats((prev) => {
+      const currentTodos = prev.dailyTodos || DEFAULT_DAILY_TODOS;
+      let toggledCompleted = false;
+      let xpAmount = 25;
+      let todoTitle = '';
+
+      const updated = currentTodos.map((item) => {
+        if (item.id === todoId) {
+          const nextState = !item.completed;
+          toggledCompleted = nextState;
+          xpAmount = item.xpReward;
+          todoTitle = item.title;
+          return { ...item, completed: nextState };
+        }
+        return item;
+      });
+
+      if (toggledCompleted) {
+        setTimeout(() => {
+          addXp(xpAmount, `Completed Daily Habit: ${todoTitle}`);
+        }, 50);
+      }
+
+      return {
+        ...prev,
+        dailyTodos: updated,
+      };
+    });
+  };
+
+  // Add custom todo item
+  const handleAddCustomTodo = (title: string) => {
+    const newTodo: DailyTodoItem = {
+      id: 'todo_custom_' + Date.now(),
+      title,
+      category: 'custom',
+      xpReward: 25,
+      completed: false,
+      isCustom: true,
+    };
+
+    setStats((prev) => ({
+      ...prev,
+      dailyTodos: [...(prev.dailyTodos || DEFAULT_DAILY_TODOS), newTodo],
+    }));
+
+    showToast({
+      type: 'success',
+      title: 'Daily Task Added',
+      description: `Added "${title}" to today's habit checklist (+25 XP).`,
+    });
+  };
+
+  // Delete custom todo item
+  const handleDeleteTodo = (todoId: string) => {
+    setStats((prev) => ({
+      ...prev,
+      dailyTodos: (prev.dailyTodos || DEFAULT_DAILY_TODOS).filter((t) => t.id !== todoId),
+    }));
+  };
+
+  // Add Practice Platform to Daily Tasks
+  const handleAddToDailyTasks = (title: string, xpReward: number) => {
+    const newTodo: DailyTodoItem = {
+      id: 'todo_platform_' + Date.now(),
+      title,
+      category: 'practice',
+      xpReward: xpReward || 35,
+      completed: false,
+      isCustom: true,
+    };
+
+    setStats((prev) => ({
+      ...prev,
+      dailyTodos: [...(prev.dailyTodos || DEFAULT_DAILY_TODOS), newTodo],
+    }));
+
+    showToast({
+      type: 'info',
+      title: `Added to Daily Action Plan`,
+      description: `${title} scheduled for today (+${xpReward || 35} XP).`,
+    });
+  };
+
+  // Use Streak Freeze Shield
+  const handleUseStreakFreeze = () => {
+    if ((stats.streakFreezesAvailable || 0) <= 0) {
+      showToast({
+        type: 'info',
+        title: 'No Streak Freezes Available',
+        description: 'Earn more by maintaining a 7-day streak!',
+      });
+      return;
+    }
+
+    setStats((prev) => ({
+      ...prev,
+      streakFreezesAvailable: Math.max(0, (prev.streakFreezesAvailable || 1) - 1),
+      checkedInToday: true,
+    }));
+
+    showToast({
+      type: 'streak',
+      title: 'Streak Freeze Shield Activated! 🛡️',
+      description: 'Your daily streak has been safely protected for today.',
+    });
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-sky-500/30 selection:text-sky-200">
       {/* Top Header */}
@@ -336,6 +464,7 @@ export default function App() {
         onSelectTab={setActiveTab}
         onOpenProfile={() => setIsProfileOpen(true)}
         onClaimDailyStreak={handleClaimDailyStreak}
+        onOpenPromptLab={handleOpenPromptLab}
       />
 
       {/* Main Content Area */}
@@ -358,6 +487,7 @@ export default function App() {
             profile={profile}
             initialTopic={quizInitialTopic}
             onQuizCompleted={handleQuizCompleted}
+            onOpenPromptLab={handleOpenPromptLab}
           />
         )}
 
@@ -366,6 +496,7 @@ export default function App() {
             profile={profile}
             initialRole={resumeInitialRole}
             onProfileOptimized={handleProfileOptimized}
+            onOpenPromptLab={handleOpenPromptLab}
           />
         )}
 
@@ -374,6 +505,14 @@ export default function App() {
             profile={profile}
             onProjectStarted={handleProjectStarted}
             onMilestoneCompleted={handleMilestoneCompleted}
+            onOpenPromptLab={handleOpenPromptLab}
+          />
+        )}
+
+        {activeTab === 'platforms' && (
+          <PracticePlatforms
+            onAddToDailyTasks={handleAddToDailyTasks}
+            onOpenPromptLab={handleOpenPromptLab}
           />
         )}
 
@@ -383,6 +522,11 @@ export default function App() {
             stats={stats}
             onClaimDailyStreak={handleClaimDailyStreak}
             onNavigateToTab={(tab) => setActiveTab(tab)}
+            onToggleTodo={handleToggleTodo}
+            onAddCustomTodo={handleAddCustomTodo}
+            onDeleteTodo={handleDeleteTodo}
+            onOpenPromptLab={handleOpenPromptLab}
+            onUseStreakFreeze={handleUseStreakFreeze}
           />
         )}
       </main>
@@ -392,7 +536,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <p>SkillMatcher • Personalized Career &amp; Skill Launchpad for Students</p>
           <p className="text-slate-600">
-            Powered by Gemini AI • Real-time Skill Diagnostics &amp; Internship Fit Scoring
+            Powered by Gemini AI • Real-time Skill Diagnostics &amp; Fit Scoring
           </p>
         </div>
       </footer>
@@ -418,6 +562,14 @@ export default function App() {
             description: 'Loaded profile template with curated skills and resume bullets.',
           });
         }}
+      />
+
+      {/* AI Career Prompt Lab Modal */}
+      <PromptLabModal
+        isOpen={isPromptLabOpen}
+        onClose={() => setIsPromptLabOpen(false)}
+        profile={profile}
+        initialPromptId={promptLabInitialId}
       />
 
       {/* Toast Notifications Container */}

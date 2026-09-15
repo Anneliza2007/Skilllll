@@ -19,15 +19,26 @@ interface QuizSectionProps {
   profile: StudentProfile;
   initialTopic?: string;
   onQuizCompleted: (topic: string, score: number, total: number) => void;
+  onOpenPromptLab?: (promptId?: string) => void;
 }
 
-export function QuizSection({ profile, initialTopic, onQuizCompleted }: QuizSectionProps) {
-  // Find weak skills: Beginner or Intermediate, or lowest mastery score
+export function QuizSection({ profile, initialTopic, onQuizCompleted, onOpenPromptLab }: QuizSectionProps) {
+  // Categorize skills into Weak (<70% or Beginner/Intermediate) and Strong (>=70% or Advanced/Expert)
   const weakSkills = profile.skills
-    .filter((s) => s.level === 'Beginner' || s.level === 'Intermediate')
+    .filter((s) => s.level === 'Beginner' || s.level === 'Intermediate' || s.masteryScore < 70)
     .sort((a, b) => a.masteryScore - b.masteryScore);
 
-  const defaultTopic = initialTopic || (weakSkills.length > 0 ? weakSkills[0].name : 'SQL & Relational Databases');
+  const strongSkills = profile.skills
+    .filter((s) => (s.level === 'Advanced' || s.level === 'Expert') && s.masteryScore >= 70)
+    .sort((a, b) => b.masteryScore - a.masteryScore);
+
+  const [activeMode, setActiveMode] = useState<'weak' | 'strong'>('weak');
+
+  const defaultTopic =
+    initialTopic ||
+    (activeMode === 'weak'
+      ? (weakSkills[0]?.name || 'SQL & Relational Databases')
+      : (strongSkills[0]?.name || 'React & TypeScript Architecture'));
 
   const [selectedTopic, setSelectedTopic] = useState(defaultTopic);
   const [customTopicInput, setCustomTopicInput] = useState('');
@@ -60,8 +71,8 @@ export function QuizSection({ profile, initialTopic, onQuizCompleted }: QuizSect
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           topic,
-          weakSkills: weakSkills.map((w) => w.name),
-          studentLevel: 'intermediate',
+          weakSkills: activeMode === 'weak' ? weakSkills.map((w) => w.name) : [],
+          studentLevel: activeMode === 'strong' ? 'advanced' : 'intermediate',
           count: 3,
         }),
       });
@@ -111,61 +122,136 @@ export function QuizSection({ profile, initialTopic, onQuizCompleted }: QuizSect
 
   const currentQ = quizQuestions ? quizQuestions[currentQuestionIndex] : null;
 
+  const activeSkillsList = activeMode === 'weak' ? weakSkills : strongSkills;
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
-      <div className="bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border border-amber-500/20 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+      <div className={`border rounded-2xl p-5 shadow-lg relative overflow-hidden transition-all ${
+        activeMode === 'weak'
+          ? 'bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border-amber-500/20'
+          : 'bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-900 border-emerald-500/20'
+      }`}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                activeMode === 'weak'
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+              }`}>
                 <Zap className="w-3.5 h-3.5" />
-                Targeted Diagnostics
+                {activeMode === 'weak' ? 'Blindspot Diagnostic Engine' : 'High-Mastery Architecture Engine'}
               </span>
               <span className="text-xs text-slate-400">
-                Earn <strong className="text-amber-300">+50 XP</strong> per diagnostic session
+                Earn <strong className={activeMode === 'weak' ? 'text-amber-300' : 'text-emerald-300'}>+50 XP</strong> per session
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold text-slate-100 tracking-tight">
-              Personalized Weak Topic Quizzes
+              {activeMode === 'weak' ? 'Personalized Weak Topic Diagnostics' : 'Strong Topic Mastery Challenges'}
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-2xl">
-              Pinpoint conceptual blindspots before real technical screens. Every diagnostic provides instant explanations and a 1-sentence quick-fix rule.
+              {activeMode === 'weak'
+                ? 'Surface hidden conceptual traps and edge-case bugs before interviewers do. Every diagnostic gives a 1-sentence quick-fix takeaway.'
+                : 'Take your strongest skills to the elite 1% tier. Solve non-trivial questions about scalability, memory contention, and architectural trade-offs.'}
             </p>
           </div>
+
+          {onOpenPromptLab && (
+            <button
+              onClick={() => onOpenPromptLab('prompt-diagnostic-quiz')}
+              className="self-start sm:self-auto px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-2 transition-all cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span>Prompt Lab</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Weak Topics Selector */}
+      {/* Weak vs Strong Mode Toggle */}
+      {!quizQuestions && !isLoading && (
+        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+          <button
+            onClick={() => {
+              setActiveMode('weak');
+              if (weakSkills.length > 0) setSelectedTopic(weakSkills[0].name);
+            }}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              activeMode === 'weak'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
+            }`}
+          >
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+            <span>Target Weak Skills ({weakSkills.length})</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveMode('strong');
+              if (strongSkills.length > 0) setSelectedTopic(strongSkills[0].name);
+            }}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              activeMode === 'strong'
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
+            }`}
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Push Strong Skills to Peak ({strongSkills.length})</span>
+          </button>
+        </div>
+      )}
+
+      {/* Topics Selector */}
       {!quizQuestions && !isLoading && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-md">
           <div>
             <h2 className="text-base font-bold text-slate-100 mb-1 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-400" />
-              Detected Weak Skills from Your Profile
+              {activeMode === 'weak' ? (
+                <>
+                  <AlertTriangle className="w-4 h-4 text-amber-400" />
+                  <span>Identified Growth Areas (&lt; 70% Mastery)</span>
+                </>
+              ) : (
+                <>
+                  <TrendingUp className="w-4 h-4 text-emerald-400" />
+                  <span>Your Standout Strengths (≥ 70% Mastery)</span>
+                </>
+              )}
             </h2>
             <p className="text-xs text-slate-400">
-              Select a topic below to generate a focused 3-question diagnostic quiz:
+              {activeMode === 'weak'
+                ? 'Choose a weak skill to isolate bugs, syntax pitfalls, and diagnostic edge cases:'
+                : 'Choose a strong skill to tackle advanced design patterns, concurrency, and performance optimization:'}
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {weakSkills.length > 0 ? (
-              weakSkills.map((skill, sIdx) => {
+            {activeSkillsList.length > 0 ? (
+              activeSkillsList.map((skill, sIdx) => {
                 const isSelected = selectedTopic === skill.name;
+                const isStrong = activeMode === 'strong';
                 return (
                   <button
                     key={`${skill.id || skill.name}-${sIdx}`}
                     onClick={() => setSelectedTopic(skill.name)}
                     className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
                       isSelected
-                        ? 'bg-amber-500/10 border-amber-500/50 shadow-md shadow-amber-500/10 ring-1 ring-amber-500/30'
+                        ? isStrong
+                          ? 'bg-emerald-500/10 border-emerald-500/50 shadow-md shadow-emerald-500/10 ring-1 ring-emerald-500/30'
+                          : 'bg-amber-500/10 border-amber-500/50 shadow-md shadow-amber-500/10 ring-1 ring-amber-500/30'
                         : 'bg-slate-950/70 border-slate-800 hover:border-slate-700 text-slate-300'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-bold text-slate-200 text-sm">{skill.name}</span>
-                      <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded border ${
+                        isStrong
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                          : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                      }`}>
                         {skill.level}
                       </span>
                     </div>
@@ -175,7 +261,7 @@ export function QuizSection({ profile, initialTopic, onQuizCompleted }: QuizSect
                     </div>
                     <div className="w-full bg-slate-800 rounded-full h-1.5 mt-1 overflow-hidden">
                       <div
-                        className="bg-amber-400 h-1.5 rounded-full"
+                        className={`h-1.5 rounded-full ${isStrong ? 'bg-emerald-400' : 'bg-amber-400'}`}
                         style={{ width: `${skill.masteryScore}%` }}
                       />
                     </div>
@@ -184,7 +270,7 @@ export function QuizSection({ profile, initialTopic, onQuizCompleted }: QuizSect
               })
             ) : (
               <div className="col-span-full p-4 text-center text-slate-400 text-xs">
-                No weak skills found! You're marked advanced across the board. Pick a custom topic below.
+                No skills in this category yet. Pick a custom topic below or update your profile inventory.
               </div>
             )}
           </div>
@@ -226,15 +312,19 @@ export function QuizSection({ profile, initialTopic, onQuizCompleted }: QuizSect
           {/* Launch Quiz Action */}
           <div className="flex items-center justify-between pt-4 border-t border-slate-800">
             <div className="text-xs text-slate-400">
-              Selected Topic: <strong className="text-amber-300 font-semibold">{selectedTopic}</strong>
+              Selected Topic: <strong className={activeMode === 'weak' ? 'text-amber-300 font-semibold' : 'text-emerald-300 font-semibold'}>{selectedTopic}</strong>
             </div>
             <button
               id="start-quiz-button"
               onClick={() => handleStartQuiz()}
-              className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-extrabold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-amber-500/20 active:scale-95 transition-all cursor-pointer"
+              className={`px-6 py-2.5 font-extrabold rounded-xl text-xs flex items-center gap-2 shadow-lg active:scale-95 transition-all cursor-pointer ${
+                activeMode === 'weak'
+                  ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-amber-500/20'
+                  : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/20'
+              }`}
             >
               <Sparkles className="w-4 h-4" />
-              <span>Generate Diagnostic Quiz (+50 XP)</span>
+              <span>{activeMode === 'weak' ? 'Generate Diagnostic Quiz (+50 XP)' : 'Generate Mastery Challenge (+50 XP)'}</span>
             </button>
           </div>
         </div>

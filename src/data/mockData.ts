@@ -1,4 +1,4 @@
-import { StudentProfile, Internship, ProjectIdea, UserStats } from '../types';
+import { StudentProfile, Internship, ProjectIdea, UserStats, DailyTodoItem } from '../types';
 
 export const PRESET_PROFILES: { label: string; profile: StudentProfile }[] = [
   {
@@ -232,6 +232,14 @@ export const INITIAL_INTERNSHIPS: Internship[] = [
   },
 ];
 
+export const DEFAULT_DAILY_TODOS: DailyTodoItem[] = [
+  { id: 'todo-streak', title: 'Claim daily streak check-in to keep momentum burning', category: 'practice', xpReward: 20, completed: true },
+  { id: 'todo-quiz', title: 'Take 1 diagnostic quiz on your weakest topic', category: 'quiz', xpReward: 50, completed: false },
+  { id: 'todo-resume', title: 'Optimize 1 resume bullet using Google XYZ formula', category: 'resume', xpReward: 35, completed: false },
+  { id: 'todo-project', title: 'Tackle 1 architecture milestone for your strongest skill', category: 'project', xpReward: 40, completed: false },
+  { id: 'todo-comfort', title: 'Attempt 1 challenge on an out-of-comfort-zone platform', category: 'practice', xpReward: 30, completed: false },
+];
+
 export const INITIAL_STATS: UserStats = {
   xp: 380,
   level: 2,
@@ -240,10 +248,12 @@ export const INITIAL_STATS: UserStats = {
   longestStreak: 7,
   lastActiveDate: new Date().toISOString().split('T')[0],
   checkedInToday: true,
+  streakFreezesAvailable: 1,
   quizzesCompleted: 6,
   projectsStarted: 1,
   resumesOptimized: 3,
   internshipsApplied: 1,
+  dailyTodos: DEFAULT_DAILY_TODOS,
   xpHistory: [
     { id: 'x1', description: 'Daily Check-in Bonus', amount: 20, timestamp: 'Today, 9:30 AM' },
     { id: 'x2', description: 'Completed SQL Diagnostic Quiz', amount: 50, timestamp: 'Today, 10:15 AM' },

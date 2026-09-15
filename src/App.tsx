@@ -527,6 +527,7 @@ export default function App() {
             onDeleteTodo={handleDeleteTodo}
             onOpenPromptLab={handleOpenPromptLab}
             onUseStreakFreeze={handleUseStreakFreeze}
+            onShowToast={showToast}
           />
         )}
       </main>

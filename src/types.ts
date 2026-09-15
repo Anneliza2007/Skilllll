@@ -160,4 +160,6 @@ export interface AuthUser {
   provider: 'credentials' | 'google';
   avatar?: string;
   joinedAt: string;
+  profileData?: StudentProfile;
+  statsData?: UserStats;
 }

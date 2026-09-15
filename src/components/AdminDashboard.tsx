@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Shield, Users, Briefcase, Award, Plus, Trash2, CheckCircle2, Search, Filter, RefreshCw } from 'lucide-react';
+import { Shield, Users, Briefcase, Award, Plus, Trash2, CheckCircle2, Search, Filter, RefreshCw, Key, UserCheck, Star } from 'lucide-react';
 import { Internship, StudentProfile, UserStats, AuthUser } from '../types';
+import { PREDEFINED_USERS } from '../data/userAccounts';
 
 interface AdminDashboardProps {
   currentUser: AuthUser;
@@ -21,8 +22,9 @@ export function AdminDashboard({
   stats,
   profile,
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'internships' | 'students' | 'system'>('internships');
+  const [activeTab, setActiveTab] = useState<'internships' | 'students' | 'accounts'>('internships');
   const [searchTerm, setSearchTerm] = useState('');
+  const [accountSearch, setAccountSearch] = useState('');
   const [isAddingInternship, setIsAddingInternship] = useState(false);
 
   // New Internship form state
@@ -131,6 +133,18 @@ export function AdminDashboard({
         >
           <Users className="w-3.5 h-3.5" />
           <span>Active Student Dossier</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('accounts')}
+          className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            activeTab === 'accounts'
+              ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30 shadow'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Key className="w-3.5 h-3.5" />
+          <span>Platform Accounts ({PREDEFINED_USERS.length})</span>
         </button>
       </div>
 
@@ -315,6 +329,73 @@ export function AdminDashboard({
               <span className="font-bold text-amber-400 text-sm">Level {stats.level} ({stats.xp} XP)</span>
               <span className="text-slate-400 block mt-0.5">{stats.dailyStreak} Day Streak • {stats.quizzesCompleted} Quizzes Taken</span>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: Predefined Platform User Accounts Directory */}
+      {activeTab === 'accounts' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5 pointer-events-none" />
+              <input
+                type="text"
+                value={accountSearch}
+                onChange={(e) => setAccountSearch(e.target.value)}
+                placeholder="Search by username, name, level, or track..."
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+            </div>
+            <div className="text-xs text-slate-400">
+              Showing {PREDEFINED_USERS.length} configured credentials across Levels 1 to 5
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden divide-y divide-slate-800">
+            {PREDEFINED_USERS.filter(
+              (acc) =>
+                acc.username.toLowerCase().includes(accountSearch.toLowerCase()) ||
+                acc.user.name.toLowerCase().includes(accountSearch.toLowerCase()) ||
+                acc.levelTitle.toLowerCase().includes(accountSearch.toLowerCase()) ||
+                acc.profile.targetRole.toLowerCase().includes(accountSearch.toLowerCase())
+            ).map((acc) => (
+              <div key={acc.username} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-slate-800/40 transition-colors">
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <span className="font-bold text-sm text-slate-100">{acc.user.name}</span>
+                    <span className="text-xs text-slate-400">({acc.user.email})</span>
+                    <span
+                      className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
+                        acc.user.role === 'admin'
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                          : 'bg-sky-500/10 text-sky-300 border-sky-500/30'
+                      }`}
+                    >
+                      {acc.user.role === 'admin' ? 'Administrator' : `Level ${acc.level}: ${acc.levelTitle}`}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-300 font-medium">
+                    {acc.profile.targetRole} • {acc.profile.university}
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    {acc.stats.xp} XP • {acc.stats.dailyStreak} day streak • {acc.stats.quizzesCompleted} quizzes completed
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-3 bg-slate-950/80 px-3 py-2 rounded-xl border border-slate-800 self-start md:self-auto">
+                  <div className="text-xs font-mono">
+                    <span className="text-slate-400 text-[10px] block">Username</span>
+                    <span className="text-sky-300 font-bold select-all">{acc.username}</span>
+                  </div>
+                  <div className="h-6 w-px bg-slate-800" />
+                  <div className="text-xs font-mono">
+                    <span className="text-slate-400 text-[10px] block">Password</span>
+                    <span className="text-emerald-300 font-bold select-all">{acc.password}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

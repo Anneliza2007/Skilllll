@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Sparkles, Shield, User, KeyRound, Mail, ArrowRight, Lock, AlertCircle } from 'lucide-react';
 import { AuthUser } from '../types';
+import { PREDEFINED_USERS } from '../data/userAccounts';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: AuthUser) => void;
@@ -31,29 +32,19 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       return;
     }
 
-    // Admin check: admin / Ann@321
-    if (trimmedUser.toLowerCase() === 'admin' && trimmedPass === 'Ann@321') {
-      onLoginSuccess({
-        id: 'usr_admin',
-        name: 'System Administrator',
-        email: 'admin@skillmatcher.internal',
-        role: 'admin',
-        provider: 'credentials',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80',
-        joinedAt: new Date().toISOString(),
-      });
-      return;
-    }
+    // Check predefined users (all 10 accounts across Levels 1-5 + Admin)
+    const found = PREDEFINED_USERS.find(
+      (acc) =>
+        (acc.username.toLowerCase() === trimmedUser.toLowerCase() ||
+          acc.user.email.toLowerCase() === trimmedUser.toLowerCase()) &&
+        acc.password === trimmedPass
+    );
 
-    // Sample User check: test / 12345
-    if (trimmedUser.toLowerCase() === 'test' && trimmedPass === '12345') {
+    if (found) {
       onLoginSuccess({
-        id: 'usr_test',
-        name: 'Alex Chen (Test User)',
-        email: 'test@example.com',
-        role: 'student',
-        provider: 'credentials',
-        joinedAt: new Date().toISOString(),
+        ...found.user,
+        profileData: found.profile,
+        statsData: found.stats,
       });
       return;
     }

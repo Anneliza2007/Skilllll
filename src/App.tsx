@@ -478,6 +478,15 @@ export default function App() {
   // Auth Handlers
   const handleLoginSuccess = (user: AuthUser) => {
     setCurrentUser(user);
+
+    // If predefined account provides custom profile and stats, load them into state
+    if (user.profileData) {
+      setProfile(user.profileData);
+    }
+    if (user.statsData) {
+      setStats(user.statsData);
+    }
+
     if (user.role === 'admin') {
       setActiveTab('admin');
       showToast({
@@ -490,7 +499,7 @@ export default function App() {
       showToast({
         type: 'success',
         title: `Welcome, ${user.name}!`,
-        description: `Signed in successfully via ${user.provider === 'google' ? 'Google Mail' : 'Credentials'}.`,
+        description: `Signed in successfully (Level ${user.statsData?.level || stats.level}: ${user.statsData?.levelTitle || stats.levelTitle}).`,
       });
     }
   };

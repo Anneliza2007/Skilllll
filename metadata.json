@@ -1,6 +1,6 @@
 {
   "name": "Student Skill Matcher & Career Launchpad",
-  "description": "Smart student skill matcher featuring ranked internship recommendations, weak-topic diagnostic quizzes, resume and LinkedIn auto-optimization, custom project ideas, and daily streak XP progress tracking.",
+  "description": "Smart student skill matcher featuring SkillTutor Socratic AI copilot with anti-paste conceptual problem solving, career growth reports, ranked internships, diagnostic quizzes, and LeetCode/HackerRank streak synchronization.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

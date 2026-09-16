@@ -12,8 +12,10 @@ import {
   TrendingUp,
   AlertTriangle,
   Lightbulb,
+  Brain,
 } from 'lucide-react';
 import { QuizQuestion, StudentProfile, StudentSkill } from '../types';
+import { SkillTutorCopilot } from './SkillTutorCopilot';
 
 interface QuizSectionProps {
   profile: StudentProfile;
@@ -52,6 +54,8 @@ export function QuizSection({ profile, initialTopic, onQuizCompleted, onOpenProm
   const [answersHistory, setAnswersHistory] = useState<
     { question: QuizQuestion; chosenIndex: number; isCorrect: boolean }[]
   >([]);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+  const [copilotHintsCount, setCopilotHintsCount] = useState(0);
 
   // Start / Generate Quiz
   const handleStartQuiz = async (topicToFetch?: string) => {
@@ -361,6 +365,20 @@ export function QuizSection({ profile, initialTopic, onQuizCompleted, onOpenProm
               <span className="text-xs font-mono font-semibold text-emerald-400">
                 Score: {score}/{currentQuestionIndex + (isAnswerSubmitted ? 1 : 0)}
               </span>
+
+              <button
+                onClick={() => setIsCopilotOpen((prev) => !prev)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  isCopilotOpen
+                    ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-750 border border-slate-700'
+                }`}
+                title="Consult SkillTutor Socratic Copilot for conceptual hints without spoilers"
+              >
+                <Brain className="w-3.5 h-3.5 text-indigo-400" />
+                <span>{isCopilotOpen ? 'Hide SkillTutor' : 'Ask SkillTutor'}</span>
+              </button>
+
               <button
                 onClick={() => setQuizQuestions(null)}
                 className="text-xs text-slate-400 hover:text-slate-200 p-1 rounded transition-colors cursor-pointer"
@@ -451,6 +469,29 @@ export function QuizSection({ profile, initialTopic, onQuizCompleted, onOpenProm
                   <p className="text-amber-100/90">{currentQ.quickFixTip}</p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* SkillTutor Copilot In-Quiz Drawer */}
+          {isCopilotOpen && (
+            <div className="pt-4 border-t border-slate-800 animate-in fade-in duration-200">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                  <Brain className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>SkillTutor Copilot Guidance (Socratic Hints Only)</span>
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  Hints used on this question: {copilotHintsCount}
+                </span>
+              </div>
+              <SkillTutorCopilot
+                problemTitle={currentQ.question}
+                problemContext={currentQ.codeSnippet || currentQ.question}
+                topic={selectedTopic}
+                hintsUsedCount={copilotHintsCount}
+                onHintUsed={() => setCopilotHintsCount((c) => c + 1)}
+                isCompact
+              />
             </div>
           )}
 

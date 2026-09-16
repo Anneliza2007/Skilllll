@@ -27,12 +27,13 @@ import { StudentProfile, UserStats, DailyTodoItem } from '../types';
 import { LEVEL_THRESHOLDS } from '../data/mockData';
 import { CareerReportModal } from './CareerReportModal';
 import { downloadCareerReportPdf } from '../utils/generateCareerReportPdf';
+import { Tooltip } from './Tooltip';
 
 interface ProgressDashboardProps {
   profile: StudentProfile;
   stats: UserStats;
   onClaimDailyStreak: () => void;
-  onNavigateToTab: (tab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'platforms') => void;
+  onNavigateToTab: (tab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'platforms' | 'badges') => void;
   onToggleTodo: (todoId: string) => void;
   onAddCustomTodo: (title: string) => void;
   onDeleteTodo: (todoId: string) => void;
@@ -316,9 +317,14 @@ export function ProgressDashboard({
           <div className="mt-5 pt-4 border-t border-slate-800">
             <div className="flex justify-between items-center mb-2 text-[10px] text-slate-400 font-medium">
               <span>Weekly Streak Momentum</span>
-              <span className="text-amber-300 font-semibold">
-                {stats.streakFreezesAvailable || 1} Freeze Shield Ready
-              </span>
+              <Tooltip
+                position="top"
+                content="Freeze Shields protect your streak from resetting if you miss a single calendar day."
+              >
+                <span className="text-amber-300 font-semibold cursor-help">
+                  {stats.streakFreezesAvailable || 1} Freeze Shield Ready
+                </span>
+              </Tooltip>
             </div>
             <div className="grid grid-cols-7 gap-1.5 text-center">
               {daysOfWeek.map((day, idx) => {
@@ -329,20 +335,26 @@ export function ProgressDashboard({
                   (isToday && stats.checkedInToday);
 
                 return (
-                  <div key={day} className="flex flex-col items-center gap-1">
-                    <span className="text-[10px] text-slate-500 font-mono">{day}</span>
-                    <div
-                      className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold transition-all ${
-                        active
-                          ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/20'
-                          : isToday
-                          ? 'border border-dashed border-amber-400 text-amber-300'
-                          : 'bg-slate-950 border border-slate-800 text-slate-600'
-                      }`}
-                    >
-                      {active ? '✓' : idx + 1}
+                  <Tooltip
+                    key={day}
+                    position="top"
+                    content={`${day}: ${active ? 'Streak verified ✓' : isToday ? 'Check in today!' : 'Pending'}`}
+                  >
+                    <div className="flex flex-col items-center gap-1 cursor-help">
+                      <span className="text-[10px] text-slate-500 font-mono">{day}</span>
+                      <div
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold transition-all ${
+                          active
+                            ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/20'
+                            : isToday
+                            ? 'border border-dashed border-amber-400 text-amber-300'
+                            : 'bg-slate-950 border border-slate-800 text-slate-600'
+                        }`}
+                      >
+                        {active ? '✓' : idx + 1}
+                      </div>
                     </div>
-                  </div>
+                  </Tooltip>
                 );
               })}
             </div>
@@ -361,6 +373,14 @@ export function ProgressDashboard({
                 <span>Streak Protected Today</span>
               </div>
             )}
+
+            <button
+              onClick={() => onNavigateToTab('platforms')}
+              className="w-full mt-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-750 text-amber-300 border border-amber-500/20 text-[11px] font-semibold rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Flame className="w-3 h-3 text-amber-400 fill-amber-400" />
+              <span>Sync LeetCode &amp; HackerRank Streaks</span>
+            </button>
           </div>
         </div>
 
@@ -372,9 +392,11 @@ export function ProgressDashboard({
                 <Award className="w-4 h-4 text-sky-400" />
                 Rank &amp; Experience
               </span>
-              <span className="text-xs font-mono font-bold text-sky-300 px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/20">
-                Tier {stats.level}
-              </span>
+              <Tooltip position="top" content={`Your current tier standing: Level ${stats.level} of 5`}>
+                <span className="text-xs font-mono font-bold text-sky-300 px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 cursor-help">
+                  Tier {stats.level}
+                </span>
+              </Tooltip>
             </div>
 
             <div className="flex items-baseline gap-2">
@@ -384,21 +406,27 @@ export function ProgressDashboard({
               Next Tier: <strong className="text-slate-200">{nextLevel ? nextLevel.title : 'Mastery Peak'}</strong>
             </p>
 
-            <div className="mt-5 space-y-2">
-              <div className="flex justify-between text-xs text-slate-300 font-mono">
-                <span>{stats.xp} Current XP</span>
-                <span>{nextLevelThreshold} XP Next</span>
+            <Tooltip
+              position="top"
+              className="w-full block"
+              content={`XP Progression: ${stats.xp} of ${nextLevelThreshold} XP (${progressPercent}% toward ${nextLevel ? nextLevel.title : 'Peak'}). Need ${Math.max(0, nextLevelThreshold - stats.xp)} more XP.`}
+            >
+              <div className="mt-5 space-y-2 cursor-help">
+                <div className="flex justify-between text-xs text-slate-300 font-mono">
+                  <span>{stats.xp} Current XP</span>
+                  <span>{nextLevelThreshold} XP Next</span>
+                </div>
+                <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
+                  <div
+                    className="bg-gradient-to-r from-sky-400 to-indigo-500 h-2.5 rounded-full transition-all duration-500"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                <span className="text-[11px] text-slate-400 block text-right font-mono">
+                  {nextLevelThreshold - stats.xp} XP to level up
+                </span>
               </div>
-              <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
-                <div
-                  className="bg-gradient-to-r from-sky-400 to-indigo-500 h-2.5 rounded-full transition-all duration-500"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-              <span className="text-[11px] text-slate-400 block text-right font-mono">
-                {nextLevelThreshold - stats.xp} XP to level up
-              </span>
-            </div>
+            </Tooltip>
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
@@ -423,14 +451,21 @@ export function ProgressDashboard({
                 <Target className="w-4 h-4 text-emerald-400" />
                 Internship Readiness Score
               </span>
-              <span className="text-xs text-emerald-300 font-semibold">Competitive</span>
+              <Tooltip position="top" content="Calculated composite metric predicting your interview and selection probability across tech roles.">
+                <span className="text-xs text-emerald-300 font-semibold cursor-help">Competitive</span>
+              </Tooltip>
             </div>
 
             <div className="flex items-center gap-4 my-2">
-              <div className="w-20 h-20 rounded-2xl bg-slate-950 border border-emerald-500/40 flex flex-col items-center justify-center text-center shadow-inner">
-                <span className="text-3xl font-black text-emerald-400 font-mono leading-none">{readinessScore}</span>
-                <span className="text-[9px] uppercase font-bold text-slate-400 mt-1">/ 100 PTS</span>
-              </div>
+              <Tooltip
+                position="top"
+                content={`${readinessScore}/100 Readiness: Weighted score based 40% on skill mastery, 35% on resume XYZ quantification, and 25% on technical diagnostics.`}
+              >
+                <div className="w-20 h-20 rounded-2xl bg-slate-950 border border-emerald-500/40 flex flex-col items-center justify-center text-center shadow-inner cursor-help">
+                  <span className="text-3xl font-black text-emerald-400 font-mono leading-none">{readinessScore}</span>
+                  <span className="text-[9px] uppercase font-bold text-slate-400 mt-1">/ 100 PTS</span>
+                </div>
+              </Tooltip>
 
               <div className="space-y-1 text-xs text-slate-300">
                 <p className="font-semibold text-slate-100">Top 15% Candidate Profile</p>
@@ -443,35 +478,53 @@ export function ProgressDashboard({
 
           {/* Breakdown progress bars */}
           <div className="space-y-2 pt-3 border-t border-slate-800 text-xs">
-            <div className="space-y-1">
-              <div className="flex justify-between text-slate-400 text-[11px]">
-                <span>Skill Mastery Index:</span>
-                <span className="text-slate-200 font-semibold">{averageMastery}%</span>
+            <Tooltip
+              position="top"
+              className="w-full block"
+              content="Skill Mastery Index: Average verified proficiency across your technical curriculum skills. Target: 75%+."
+            >
+              <div className="space-y-1 cursor-help">
+                <div className="flex justify-between text-slate-400 text-[11px]">
+                  <span>Skill Mastery Index:</span>
+                  <span className="text-slate-200 font-semibold">{averageMastery}%</span>
+                </div>
+                <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
+                  <div className="bg-sky-400 h-1.5 rounded-full" style={{ width: `${averageMastery}%` }} />
+                </div>
               </div>
-              <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
-                <div className="bg-sky-400 h-1.5 rounded-full" style={{ width: `${averageMastery}%` }} />
-              </div>
-            </div>
+            </Tooltip>
 
-            <div className="space-y-1">
-              <div className="flex justify-between text-slate-400 text-[11px]">
-                <span>Resume XYZ Polish:</span>
-                <span className="text-slate-200 font-semibold">{resumeScore}%</span>
+            <Tooltip
+              position="top"
+              className="w-full block"
+              content="Resume XYZ Polish: Quality score for achievement-driven Google XYZ format bullets (Accomplished [X], measured by [Y], by doing [Z])."
+            >
+              <div className="space-y-1 cursor-help">
+                <div className="flex justify-between text-slate-400 text-[11px]">
+                  <span>Resume XYZ Polish:</span>
+                  <span className="text-slate-200 font-semibold">{resumeScore}%</span>
+                </div>
+                <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
+                  <div className="bg-indigo-400 h-1.5 rounded-full" style={{ width: `${resumeScore}%` }} />
+                </div>
               </div>
-              <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
-                <div className="bg-indigo-400 h-1.5 rounded-full" style={{ width: `${resumeScore}%` }} />
-              </div>
-            </div>
+            </Tooltip>
 
-            <div className="space-y-1">
-              <div className="flex justify-between text-slate-400 text-[11px]">
-                <span>Diagnostics &amp; Tests:</span>
-                <span className="text-slate-200 font-semibold">{quizFactor}%</span>
+            <Tooltip
+              position="top"
+              className="w-full block"
+              content="Diagnostics & Tests: Coverage of completed interactive skill assessments and practice platform benchmarks."
+            >
+              <div className="space-y-1 cursor-help">
+                <div className="flex justify-between text-slate-400 text-[11px]">
+                  <span>Diagnostics &amp; Tests:</span>
+                  <span className="text-slate-200 font-semibold">{quizFactor}%</span>
+                </div>
+                <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
+                  <div className="bg-emerald-400 h-1.5 rounded-full" style={{ width: `${quizFactor}%` }} />
+                </div>
               </div>
-              <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
-                <div className="bg-emerald-400 h-1.5 rounded-full" style={{ width: `${quizFactor}%` }} />
-              </div>
-            </div>
+            </Tooltip>
 
             <div className="pt-2 flex items-center justify-between">
               <span className="text-[10px] text-slate-500 font-mono">Verified Scorecard</span>
@@ -511,12 +564,17 @@ export function ProgressDashboard({
                 {todoCompletionPercent}% Today's Target
               </span>
             </div>
-            <div className="w-20 bg-slate-800 rounded-full h-2 overflow-hidden">
-              <div
-                className="bg-emerald-400 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${todoCompletionPercent}%` }}
-              />
-            </div>
+            <Tooltip
+              position="top"
+              content={`Checklist Target: ${completedTodosCount}/${dailyTodos.length} actions finished (${todoCompletionPercent}%). Complete daily habits to earn XP and strengthen streak.`}
+            >
+              <div className="w-20 bg-slate-800 rounded-full h-2 overflow-hidden cursor-help">
+                <div
+                  className="bg-emerald-400 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${todoCompletionPercent}%` }}
+                />
+              </div>
+            </Tooltip>
           </div>
         </div>
 
@@ -650,12 +708,16 @@ export function ProgressDashboard({
           <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 border-b border-slate-800 pb-2">
             <span>Skill</span>
             <div className="flex items-center gap-4 font-mono">
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-amber-400"></span> 60% Baseline
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-400"></span> 85% Standout
-              </span>
+              <Tooltip position="top" content="60% Baseline: The minimum proficiency expected by hiring managers for entry-level internships.">
+                <span className="flex items-center gap-1 cursor-help">
+                  <span className="w-2 h-2 rounded-full bg-amber-400"></span> 60% Baseline
+                </span>
+              </Tooltip>
+              <Tooltip position="top" content="85% Standout: High-competency threshold separating top-percentile candidates in interview selection.">
+                <span className="flex items-center gap-1 cursor-help">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span> 85% Standout
+                </span>
+              </Tooltip>
             </div>
           </div>
 
@@ -663,6 +725,13 @@ export function ProgressDashboard({
           <div className="space-y-3.5">
             {filteredSkillsForChart.map((skill) => {
               const isStrong = skill.masteryScore >= 70;
+              const standing =
+                skill.masteryScore >= 85
+                  ? 'Standout Candidate'
+                  : skill.masteryScore >= 60
+                  ? 'Industry Baseline'
+                  : 'Growth Opportunity';
+
               return (
                 <div key={skill.id || skill.name} className="space-y-1">
                   <div className="flex justify-between items-center text-xs">
@@ -674,21 +743,43 @@ export function ProgressDashboard({
                   </div>
 
                   {/* Visual Bar with benchmark markers */}
-                  <div className="relative w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800">
-                    {/* Baseline indicator line at 60% */}
-                    <div className="absolute top-0 bottom-0 left-[60%] w-0.5 bg-amber-500/40 z-10" />
-                    {/* Standout indicator line at 85% */}
-                    <div className="absolute top-0 bottom-0 left-[85%] w-0.5 bg-emerald-500/40 z-10" />
+                  <Tooltip
+                    position="top"
+                    className="w-full block"
+                    content={
+                      <div className="space-y-1 text-left">
+                        <p className="font-bold text-slate-100 flex items-center justify-between gap-2">
+                          <span>{skill.name}</span>
+                          <span className={skill.masteryScore >= 85 ? 'text-emerald-400 font-mono' : skill.masteryScore >= 60 ? 'text-sky-400 font-mono' : 'text-amber-400 font-mono'}>
+                            {skill.masteryScore}% ({standing})
+                          </span>
+                        </p>
+                        <p className="text-[11px] text-slate-300">
+                          {skill.masteryScore >= 85
+                            ? 'Exceptional mastery surpassing the 85% standout bar. Highlight in interview discussions.'
+                            : skill.masteryScore >= 60
+                            ? 'Meets standard job requirements. Target 85%+ through diagnostic quizzes.'
+                            : 'Currently below 60% baseline. Prioritize targeted practice in diagnostic quizzes.'}
+                        </p>
+                      </div>
+                    }
+                  >
+                    <div className="relative w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800 cursor-help">
+                      {/* Baseline indicator line at 60% */}
+                      <div className="absolute top-0 bottom-0 left-[60%] w-0.5 bg-amber-500/40 z-10" />
+                      {/* Standout indicator line at 85% */}
+                      <div className="absolute top-0 bottom-0 left-[85%] w-0.5 bg-emerald-500/40 z-10" />
 
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        isStrong
-                          ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
-                          : 'bg-gradient-to-r from-amber-500 to-orange-400'
-                      }`}
-                      style={{ width: `${skill.masteryScore}%` }}
-                    />
-                  </div>
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          isStrong
+                            ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                            : 'bg-gradient-to-r from-amber-500 to-orange-400'
+                        }`}
+                        style={{ width: `${skill.masteryScore}%` }}
+                      />
+                    </div>
+                  </Tooltip>
                 </div>
               );
             })}
@@ -711,12 +802,18 @@ export function ProgressDashboard({
                     <span>{cat.category}</span>
                     <span className="font-mono font-bold text-sky-400">{cat.avg}% Avg</span>
                   </div>
-                  <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
-                    <div
-                      className="bg-gradient-to-r from-indigo-500 to-sky-400 h-2 rounded-full"
-                      style={{ width: `${cat.avg}%` }}
-                    />
-                  </div>
+                  <Tooltip
+                    position="top"
+                    className="w-full block"
+                    content={`${cat.category} curriculum average: ${cat.avg}% composite mastery.`}
+                  >
+                    <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800 cursor-help">
+                      <div
+                        className="bg-gradient-to-r from-indigo-500 to-sky-400 h-2 rounded-full"
+                        style={{ width: `${cat.avg}%` }}
+                      />
+                    </div>
+                  </Tooltip>
                 </div>
               ))}
             </div>
@@ -736,26 +833,32 @@ export function ProgressDashboard({
               {weeklyActivityData.map((item, idx) => {
                 const isToday = idx === todayDayIndex;
                 return (
-                  <div key={item.day} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                    <span className="text-[9px] font-mono text-slate-400">{item.xp}</span>
-                    <div className="w-full bg-slate-950 rounded-t-lg h-full flex items-end p-0.5 border border-slate-800">
-                      <div
-                        className={`w-full rounded-t-md transition-all duration-500 ${
-                          isToday
-                            ? 'bg-gradient-to-t from-sky-500 to-emerald-400 shadow-sm shadow-emerald-500/20'
-                            : 'bg-slate-700/80 hover:bg-slate-600'
+                  <Tooltip
+                    key={item.day}
+                    position="top"
+                    content={`${item.day}: +${item.xp} XP earned ${isToday ? '(Today)' : ''}`}
+                  >
+                    <div className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end cursor-help">
+                      <span className="text-[9px] font-mono text-slate-400">{item.xp}</span>
+                      <div className="w-full bg-slate-950 rounded-t-lg h-full flex items-end p-0.5 border border-slate-800">
+                        <div
+                          className={`w-full rounded-t-md transition-all duration-500 ${
+                            isToday
+                              ? 'bg-gradient-to-t from-sky-500 to-emerald-400 shadow-sm shadow-emerald-500/20'
+                              : 'bg-slate-700/80 hover:bg-slate-600'
+                          }`}
+                          style={{ height: item.height }}
+                        />
+                      </div>
+                      <span
+                        className={`text-[10px] font-mono ${
+                          isToday ? 'text-sky-300 font-bold' : 'text-slate-500'
                         }`}
-                        style={{ height: item.height }}
-                      />
+                      >
+                        {item.day}
+                      </span>
                     </div>
-                    <span
-                      className={`text-[10px] font-mono ${
-                        isToday ? 'text-sky-300 font-bold' : 'text-slate-500'
-                      }`}
-                    >
-                      {item.day}
-                    </span>
-                  </div>
+                  </Tooltip>
                 );
               })}
             </div>
@@ -765,34 +868,65 @@ export function ProgressDashboard({
 
       {/* Unlockable Achievement Badges */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-md">
-        <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-          <Shield className="w-4 h-4 text-amber-400" />
-          Earned Badges &amp; Career Milestones
-        </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-amber-400" />
+              Earned Badges &amp; Career Milestones
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Live milestones earned across applications, quizzes, and streaks.
+            </p>
+          </div>
+          <button
+            onClick={() => onNavigateToTab('badges')}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold transition-colors cursor-pointer self-start sm:self-auto"
+          >
+            <span>Full Trophy Room (🏆)</span>
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {achievements.map((ach, idx) => (
-            <div
+            <Tooltip
               key={`${ach.id}-${idx}`}
-              className={`p-3.5 rounded-xl border text-center flex flex-col items-center justify-between transition-all ${
-                ach.unlocked
-                  ? 'bg-slate-950 border-amber-500/30 shadow-sm'
-                  : 'bg-slate-950/40 border-slate-800/80 opacity-50 grayscale'
-              }`}
+              position="top"
+              className="w-full h-full flex"
+              content={
+                <div className="text-left space-y-1">
+                  <p className="font-bold text-slate-100 flex items-center gap-1.5">
+                    <span>{ach.icon}</span>
+                    <span>{ach.title}</span>
+                  </p>
+                  <p className="text-[11px] text-slate-300">{ach.desc}</p>
+                  <p className="text-[10px] font-semibold text-amber-400">
+                    Status: {ach.unlocked ? 'Unlocked Milestone' : 'Milestone In Progress'}
+                  </p>
+                </div>
+              }
             >
-              <span className="text-2xl mb-1">{ach.icon}</span>
-              <span className="text-xs font-bold text-slate-200 leading-tight">{ach.title}</span>
-              <span className="text-[10px] text-slate-400 leading-tight mt-1">{ach.desc}</span>
-              <span
-                className={`mt-2 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+              <div
+                className={`w-full p-3.5 rounded-xl border text-center flex flex-col items-center justify-between transition-all cursor-help ${
                   ach.unlocked
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    : 'bg-slate-800 text-slate-500'
+                    ? 'bg-slate-950 border-amber-500/30 shadow-sm hover:border-amber-400/50'
+                    : 'bg-slate-950/40 border-slate-800/80 opacity-50 grayscale hover:opacity-75'
                 }`}
               >
-                {ach.unlocked ? 'Unlocked ✓' : 'Locked'}
-              </span>
-            </div>
+                <span className="text-2xl mb-1">{ach.icon}</span>
+                <span className="text-xs font-bold text-slate-200 leading-tight">{ach.title}</span>
+                <span className="text-[10px] text-slate-400 leading-tight mt-1">{ach.desc}</span>
+                <span
+                  className={`mt-2 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                    ach.unlocked
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : 'bg-slate-800 text-slate-500'
+                  }`}
+                >
+                  {ach.unlocked ? 'Unlocked ✓' : 'Locked'}
+                </span>
+              </div>
+            </Tooltip>
           ))}
         </div>
       </div>

@@ -6,6 +6,8 @@ import { ResumeLinkedInOptimizer } from './components/ResumeLinkedInOptimizer';
 import { ProjectIdeaGenerator } from './components/ProjectIdeaGenerator';
 import { ProgressDashboard } from './components/ProgressDashboard';
 import { PracticePlatforms } from './components/PracticePlatforms';
+import { AchievementBadges } from './components/AchievementBadges';
+import { SkillTutorWorkspace } from './components/SkillTutorWorkspace';
 import { PromptLabModal } from './components/PromptLabModal';
 import { ProfileModal } from './components/ProfileModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
@@ -82,7 +84,7 @@ export default function App() {
   });
 
   const [activeTab, setActiveTab] = useState<
-    'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms' | 'admin'
+    'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms' | 'badges' | 'skilltutor' | 'admin'
   >('internships');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
@@ -239,6 +241,27 @@ export default function App() {
       title: `${stats.dailyStreak + 1} Day Streak Secured! 🔥`,
       description: 'Your learning habit is burning bright. Keep it going tomorrow!',
     });
+  };
+
+  // Handle external platform streak sync (LeetCode & HackerRank)
+  const handleStreakSynced = (result: {
+    platform: 'leetcode' | 'hackerrank';
+    dailyStreak: number;
+    xpBonus: number;
+    message: string;
+  }) => {
+    setStats((prev) => {
+      const mergedStreak = Math.max(prev.dailyStreak, result.dailyStreak);
+      return {
+        ...prev,
+        dailyStreak: mergedStreak,
+        longestStreak: Math.max(prev.longestStreak, mergedStreak),
+        checkedInToday: true,
+        lastActiveDate: new Date().toISOString().split('T')[0],
+      };
+    });
+
+    addXp(result.xpBonus || 40, `${result.platform === 'leetcode' ? 'LeetCode' : 'HackerRank'} Daily Streak Synced`);
   };
 
   // Toggle Save Internship
@@ -605,10 +628,22 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'skilltutor' && (
+          <SkillTutorWorkspace
+            profile={profile}
+            stats={stats}
+            onAddXp={addXp}
+            onShowToast={showToast}
+            onNavigateToTab={(tab) => setActiveTab(tab)}
+          />
+        )}
+
         {activeTab === 'platforms' && (
           <PracticePlatforms
             onAddToDailyTasks={handleAddToDailyTasks}
             onOpenPromptLab={handleOpenPromptLab}
+            onStreakSynced={handleStreakSynced}
+            onShowToast={showToast}
           />
         )}
 
@@ -623,6 +658,16 @@ export default function App() {
             onDeleteTodo={handleDeleteTodo}
             onOpenPromptLab={handleOpenPromptLab}
             onUseStreakFreeze={handleUseStreakFreeze}
+            onShowToast={showToast}
+          />
+        )}
+
+        {activeTab === 'badges' && (
+          <AchievementBadges
+            profile={profile}
+            stats={stats}
+            internships={internships}
+            onNavigateToTab={(tab) => setActiveTab(tab)}
             onShowToast={showToast}
           />
         )}

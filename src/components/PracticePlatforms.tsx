@@ -16,13 +16,30 @@ import {
 } from 'lucide-react';
 import { PracticePlatform } from '../types';
 import { PRACTICE_PLATFORMS } from '../data/practicePlatforms';
+import { ExternalStreakSyncHub } from './ExternalStreakSyncHub';
 
 interface PracticePlatformsProps {
   onAddToDailyTasks: (title: string, xpReward: number) => void;
   onOpenPromptLab: (initialPromptId?: string) => void;
+  onStreakSynced?: (result: {
+    platform: 'leetcode' | 'hackerrank';
+    dailyStreak: number;
+    xpBonus: number;
+    message: string;
+  }) => void;
+  onShowToast?: (toast: {
+    type: 'success' | 'info' | 'streak' | 'xp';
+    title: string;
+    description: string;
+  }) => void;
 }
 
-export function PracticePlatforms({ onAddToDailyTasks, onOpenPromptLab }: PracticePlatformsProps) {
+export function PracticePlatforms({
+  onAddToDailyTasks,
+  onOpenPromptLab,
+  onStreakSynced,
+  onShowToast,
+}: PracticePlatformsProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
@@ -94,7 +111,7 @@ export function PracticePlatforms({ onAddToDailyTasks, onOpenPromptLab }: Practi
           <div className="flex flex-wrap gap-2 shrink-0">
             <button
               onClick={() => onOpenPromptLab('prompt-comfort-zone')}
-              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700/90 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-2 transition-all cursor-pointer"
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-2 transition-all cursor-pointer"
             >
               <Sparkles className="w-4 h-4 text-sky-400" />
               <span>Scout Prompt Template</span>
@@ -102,6 +119,12 @@ export function PracticePlatforms({ onAddToDailyTasks, onOpenPromptLab }: Practi
           </div>
         </div>
       </div>
+
+      {/* External Platforms Streak Integration (LeetCode & HackerRank) */}
+      <ExternalStreakSyncHub
+        onStreakSynced={onStreakSynced}
+        onShowToast={onShowToast}
+      />
 
       {/* Category Pills & Search */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">

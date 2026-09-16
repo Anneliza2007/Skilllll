@@ -163,3 +163,148 @@ export interface AuthUser {
   profileData?: StudentProfile;
   statsData?: UserStats;
 }
+
+export type BadgeRarity = 'Bronze' | 'Silver' | 'Gold' | 'Platinum' | 'Diamond';
+export type BadgeCategory = 'all' | 'career' | 'skills' | 'streak' | 'learning';
+
+export interface AchievementBadge {
+  id: string;
+  title: string;
+  tagline: string;
+  description: string;
+  category: 'career' | 'skills' | 'streak' | 'learning';
+  rarity: BadgeRarity;
+  icon: string; // Emoji or visual icon identifier
+  unlocked: boolean;
+  unlockedDate?: string;
+  currentProgress: number;
+  maxProgress: number;
+  progressLabel: string;
+  xpReward: number;
+  hint: string;
+}
+
+// External competitive programming profiles & streak synchronization
+export interface ExternalCodingProfile {
+  platform: 'leetcode' | 'hackerrank';
+  username: string;
+  connected: boolean;
+  dailyStreak: number;
+  totalSolved: number;
+  breakdown?: { easy: number; medium: number; hard: number };
+  rankingOrRating?: string;
+  lastSyncedAt?: string;
+  syncedToday: boolean;
+  badge?: string;
+}
+
+// SkillTutor Conceptual Socratic Engine types
+export type SkillTutorMode = 'hint' | 'socratic' | 'debug' | 'concept' | 'interview';
+
+export type SkillTutorHintStage = 1 | 2 | 3 | 4 | 5;
+
+export interface SkillTutorChallenge {
+  id: string;
+  title: string;
+  topic: string;
+  difficulty: 'Conceptual Foundational' | 'Intermediate Architecture' | 'Advanced Trade-offs';
+  conceptualScenario: string;
+  promptQuestion: string;
+  keyPrinciples: string[];
+  exampleThoughtPrompt: string;
+  relatedRole: string;
+  weakSkillTag?: string;
+  commonMistakes?: string[];
+  adaptiveNotes?: string;
+}
+
+export interface SkillTutorHintLog {
+  tier: number;
+  tierName: string;
+  timestamp: string;
+  mode: SkillTutorMode;
+}
+
+export interface SkillTutorRevisionLog {
+  id?: string;
+  timestamp: string;
+  diffSummary: string;
+  length: number;
+  characterCount?: number;
+  wordCount?: number;
+}
+
+export interface SkillTutorTelemetry {
+  hintRequests: SkillTutorHintLog[];
+  timeOnTaskSeconds: number;
+  attemptsCount: number;
+  revisionCount: number;
+  revisionPatterns: SkillTutorRevisionLog[];
+  copiedAnswerWarnings: number;
+  refusalGivenCount: number;
+  independenceScore: number; // 0 to 100
+  aiRelianceScore: number; // 0 to 100
+}
+
+export interface SkillTutorMessage {
+  id: string;
+  sender: 'user' | 'tutor';
+  text: string;
+  timestamp: string;
+  mode?: SkillTutorMode;
+  hintTier?: string;
+  hintStage?: number;
+  guidingQuestion?: string;
+  conceptualAnalogy?: string;
+  likelyBugLocation?: string;
+  authorizedSnippet?: string;
+  isRefusal?: boolean;
+  requiresReExplanation?: boolean;
+  adaptiveNote?: string;
+}
+
+export interface SkillTutorSubmission {
+  id: string;
+  challengeId: string;
+  challengeTitle: string;
+  topic: string;
+  studentConceptualAnswer: string;
+  score: number;
+  passed: boolean;
+  conceptualDepth: string;
+  selfRelianceRating: string;
+  hintsUsed: number;
+  timestamp: string;
+  strengths: string[];
+  cognitiveGaps: string[];
+  socraticFeedback: string;
+  careerReadinessVerdict: string;
+  antiCheatVerified: boolean;
+  independenceScore: number;
+  aiRelianceScore: number;
+  timeOnTaskSeconds: number;
+  attemptsCount: number;
+  revisionCount: number;
+  revisionsCount?: number;
+  modeUsed?: SkillTutorMode;
+  reExplanationVerified?: boolean;
+}
+
+export interface SkillTutorReport {
+  executiveSummary: string;
+  conceptualProficiencyIndex: number;
+  selfRelianceRate: number;
+  independenceScore: number;
+  aiRelianceScore: number;
+  antiCheatIntegrity: string;
+  careerReadinessTier: string;
+  recruiterPitchSummary: string;
+  topStrengths: string[];
+  growthOpportunities: string[];
+  topicBreakdown: {
+    topic: string;
+    score: number;
+    status: string;
+    recommendation: string;
+  }[];
+}

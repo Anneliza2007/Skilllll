@@ -1,14 +1,15 @@
 import { Flame, Sparkles, User, Award, CheckCircle2, Shield, LogOut } from 'lucide-react';
 import { StudentProfile, UserStats, AuthUser } from '../types';
 import { LEVEL_THRESHOLDS } from '../data/mockData';
+import { Tooltip } from './Tooltip';
 
 interface HeaderProps {
   profile: StudentProfile;
   stats: UserStats;
   currentUser?: AuthUser | null;
   onLogout?: () => void;
-  activeTab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms' | 'admin';
-  onSelectTab: (tab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms' | 'admin') => void;
+  activeTab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms' | 'badges' | 'skilltutor' | 'admin';
+  onSelectTab: (tab: 'internships' | 'quizzes' | 'resume' | 'projects' | 'dashboard' | 'platforms' | 'badges' | 'skilltutor' | 'admin') => void;
   onOpenProfile: () => void;
   onClaimDailyStreak: () => void;
   onOpenPromptLab?: (promptId?: string) => void;
@@ -65,51 +66,89 @@ export function Header({
             {/* Daily Streak */}
             <div className="flex items-center">
               {stats.checkedInToday ? (
-                <div
-                  id="streak-active-badge"
-                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold shadow-inner"
-                  title="Daily streak active! Check in tomorrow to keep the flame alive."
+                <Tooltip
+                  position="bottom"
+                  content={
+                    <div className="space-y-1 text-left">
+                      <p className="font-bold text-amber-300 flex items-center gap-1">
+                        <span>🔥</span>
+                        <span>{stats.dailyStreak}-Day Active Streak</span>
+                      </p>
+                      <p className="text-[11px] text-slate-300">
+                        Today's daily check-in is recorded. Check in tomorrow to keep the flame alive!
+                      </p>
+                    </div>
+                  }
                 >
-                  <Flame className="w-4 h-4 text-amber-400 animate-pulse fill-amber-400" />
-                  <span>{stats.dailyStreak} Day Streak</span>
-                </div>
+                  <div
+                    id="streak-active-badge"
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold shadow-inner cursor-help"
+                  >
+                    <Flame className="w-4 h-4 text-amber-400 animate-pulse fill-amber-400" />
+                    <span>{stats.dailyStreak} Day Streak</span>
+                  </div>
+                </Tooltip>
               ) : (
-                <button
-                  id="claim-streak-btn"
-                  onClick={onClaimDailyStreak}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 text-xs font-bold shadow-md shadow-orange-500/20 hover:brightness-110 active:scale-95 transition-all cursor-pointer"
-                  title="Click to claim your daily check-in streak bonus!"
+                <Tooltip
+                  position="bottom"
+                  content="Click to check in for today! Earns +20 XP and advances your preparation streak."
                 >
-                  <Flame className="w-4 h-4 text-slate-950 fill-slate-950" />
-                  <span>Claim Daily +20 XP</span>
-                </button>
+                  <button
+                    id="claim-streak-btn"
+                    onClick={onClaimDailyStreak}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 text-xs font-bold shadow-md shadow-orange-500/20 hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+                  >
+                    <Flame className="w-4 h-4 text-slate-950 fill-slate-950" />
+                    <span>Claim Daily +20 XP</span>
+                  </button>
+                </Tooltip>
               )}
             </div>
 
             {/* Level & XP bar */}
-            <div
-              id="xp-level-badge"
-              className="hidden md:flex flex-col px-3 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs w-44"
+            <Tooltip
+              position="bottom"
+              content={
+                <div className="space-y-1 text-left min-w-[200px]">
+                  <div className="flex justify-between items-center text-xs font-bold text-sky-300">
+                    <span>Level {stats.level}: {currentLevelInfo.title}</span>
+                    <span className="font-mono text-amber-300">{stats.xp} Total XP</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    {stats.level >= 5
+                      ? 'Top tier achieved! Maximum candidate readiness.'
+                      : `${Math.max(0, nextLevelThreshold - stats.xp)} more XP needed to reach next rank.`}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    Hover: Level progress increases with quizzes, resumes, and daily tasks.
+                  </p>
+                </div>
+              }
             >
-              <div className="flex justify-between items-center text-[11px] font-medium text-slate-300">
-                <span className="flex items-center space-x-1 text-sky-400 font-semibold">
-                  <Award className="w-3 h-3 text-sky-400" />
-                  <span>Lvl {stats.level}</span>
-                </span>
-                <span className="text-slate-400 font-mono">
-                  {stats.xp}/{nextLevelThreshold} XP
+              <div
+                id="xp-level-badge"
+                className="hidden md:flex flex-col px-3 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs w-44 cursor-help"
+              >
+                <div className="flex justify-between items-center text-[11px] font-medium text-slate-300">
+                  <span className="flex items-center space-x-1 text-sky-400 font-semibold">
+                    <Award className="w-3 h-3 text-sky-400" />
+                    <span>Lvl {stats.level}</span>
+                  </span>
+                  <span className="text-slate-400 font-mono">
+                    {stats.xp}/{nextLevelThreshold} XP
+                  </span>
+                </div>
+                <div className="w-full bg-slate-700/80 rounded-full h-1.5 mt-1 overflow-hidden">
+                  <div
+                    className="bg-gradient-to-r from-sky-400 to-indigo-400 h-1.5 rounded-full transition-all duration-500"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                <span className="text-[10px] text-slate-400 truncate mt-0.5 font-medium">
+                  {currentLevelInfo.title}
                 </span>
               </div>
-              <div className="w-full bg-slate-700/80 rounded-full h-1.5 mt-1 overflow-hidden">
-                <div
-                  className="bg-gradient-to-r from-sky-400 to-indigo-400 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-              <span className="text-[10px] text-slate-400 truncate mt-0.5 font-medium">
-                {currentLevelInfo.title}
-              </span>
-            </div>
+            </Tooltip>
 
             {/* User Profile Pill & Logout */}
             <div className="flex items-center space-x-1.5">
@@ -161,11 +200,13 @@ export function Header({
           <div className="flex space-x-1 sm:space-x-2">
             {[
               { id: 'internships', label: 'Ranked Internships', icon: '🎯' },
+              { id: 'skilltutor', label: 'SkillTutor AI', icon: '🧠' },
               { id: 'quizzes', label: 'Weak & Strong Quizzes', icon: '⚡' },
               { id: 'resume', label: 'Resume & LinkedIn AI', icon: '📝' },
               { id: 'projects', label: 'Strong Skill Projects', icon: '💡' },
               { id: 'platforms', label: 'Out-of-Comfort Practice', icon: '🚀' },
               { id: 'dashboard', label: 'Progress & Streaks', icon: '📈' },
+              { id: 'badges', label: 'Achievement Badges', icon: '🏆' },
               ...(currentUser?.role === 'admin'
                 ? [{ id: 'admin', label: 'Admin Center', icon: '🛡️' }]
                 : []),

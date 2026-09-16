@@ -5,8 +5,6 @@ import {
   HelpCircle,
   Lightbulb,
   ArrowRight,
-  Copy,
-  Check,
   Send,
   Brain,
   AlertTriangle,
@@ -15,9 +13,12 @@ import {
   MessageSquare,
   Users,
   Target,
+  Zap,
+  Lock,
 } from 'lucide-react';
-import { SkillTutorMessage, SkillTutorMode } from '../types';
+import { SkillTutorMessage, SkillTutorMode, SignedSnippetToken } from '../types';
 import { registerAuthorizedSnippet } from '../utils/skillTutorClipboard';
+import { generateSignedCopilotToken } from '../utils/skillTutorSecurity';
 
 interface SkillTutorCopilotProps {
   problemTitle: string;
@@ -26,7 +27,7 @@ interface SkillTutorCopilotProps {
   currentDraft?: string;
   hintsUsedCount: number;
   onHintUsed: () => void;
-  onInsertAuthorizedSnippet?: (snippet: string) => void;
+  onInsertAuthorizedSnippet?: (snippet: string, signedToken?: SignedSnippetToken) => void;
   onShowToast?: (toast: { type: 'success' | 'info' | 'streak' | 'xp'; title: string; description: string }) => void;
   isCompact?: boolean;
   mode?: SkillTutorMode;
@@ -35,6 +36,15 @@ interface SkillTutorCopilotProps {
   pastMistakes?: string[];
   onRefusalRecorded?: () => void;
   onCopiedDetected?: () => void;
+  problemStatement?: {
+    title?: string;
+    description?: string;
+    constraints?: string;
+    inputFormat?: string;
+    outputFormat?: string;
+  };
+  activeLanguage?: string;
+  currentCode?: string;
 }
 
 const MODES_CONFIG: { id: SkillTutorMode; label: string; icon: typeof Lightbulb; desc: string }[] = [
@@ -69,13 +79,16 @@ export function SkillTutorCopilot({
   pastMistakes = [],
   onRefusalRecorded,
   onCopiedDetected,
+  problemStatement,
+  activeLanguage = 'python',
+  currentCode = '',
 }: SkillTutorCopilotProps) {
   const [activeMode, setActiveMode] = useState<SkillTutorMode>(initialMode);
   const [messages, setMessages] = useState<SkillTutorMessage[]>([
     {
       id: 'msg_welcome',
       sender: 'tutor',
-      text: `Hello! I am SkillTutor, your Socratic career mentor. I never give full answers, final code, or complete solutions. Instead, I provide 5 progressive hint stages, detect copied answers, and adapt to your past mistakes so you build true problem-solving autonomy.`,
+      text: `Hello! I am SkillTutor, your Socratic mentor. I guide your reasoning for "${problemTitle}" without giving away complete code. I can diagnose compiler bugs for Python, C, and C++, explain algorithmic invariants, and provide 5-stage progressive hints.`,
       timestamp: 'Just now',
     },
   ]);
@@ -109,14 +122,19 @@ export function SkillTutorCopilot({
           topic,
           weakAreas,
           pastMistakes,
+          problemStatement,
+          activeLanguage,
+          currentCode,
         }),
       });
 
       const data = await res.json();
       if (data.success && data.data) {
         const hint = data.data;
+        let signedToken: SignedSnippetToken | undefined;
         if (hint.authorizedSnippet) {
           registerAuthorizedSnippet(hint.authorizedSnippet);
+          signedToken = generateSignedCopilotToken(hint.authorizedSnippet);
         }
 
         if (hint.isRefusal && onRefusalRecorded) {
@@ -134,6 +152,7 @@ export function SkillTutorCopilot({
           conceptualAnalogy: hint.conceptualAnalogy,
           likelyBugLocation: hint.likelyBugLocation,
           authorizedSnippet: hint.authorizedSnippet,
+          signedToken,
           hintTier: hint.hintTierName || `Stage ${level} Hint`,
           hintStage: level,
           mode: activeMode,
@@ -191,14 +210,19 @@ export function SkillTutorCopilot({
           topic,
           weakAreas,
           pastMistakes,
+          problemStatement,
+          activeLanguage,
+          currentCode,
         }),
       });
 
       const data = await res.json();
       if (data.success && data.data) {
         const hint = data.data;
+        let signedToken: SignedSnippetToken | undefined;
         if (hint.authorizedSnippet) {
           registerAuthorizedSnippet(hint.authorizedSnippet);
+          signedToken = generateSignedCopilotToken(hint.authorizedSnippet);
         }
 
         if (hint.isRefusal && onRefusalRecorded) {
@@ -216,6 +240,7 @@ export function SkillTutorCopilot({
           conceptualAnalogy: hint.conceptualAnalogy,
           likelyBugLocation: hint.likelyBugLocation,
           authorizedSnippet: hint.authorizedSnippet,
+          signedToken,
           hintTier: hint.hintTierName || `${activeMode.toUpperCase()} Guidance`,
           mode: activeMode,
           isRefusal: hint.isRefusal,
@@ -233,30 +258,15 @@ export function SkillTutorCopilot({
     }
   };
 
-  const handleCopyAuthorized = (snippet: string) => {
-    registerAuthorizedSnippet(snippet);
-    navigator.clipboard.writeText(snippet);
-    setCopiedSnippet(snippet);
-    setTimeout(() => setCopiedSnippet(null), 2500);
-
-    if (onShowToast) {
-      onShowToast({
-        type: 'success',
-        title: 'Authorized Concept Copied',
-        description: 'You can now paste this verified SkillTutor concept into your answer.',
-      });
-    }
-  };
-
-  const handleInsertDirectly = (snippet: string) => {
+  const handleInsertDirectly = (snippet: string, signedToken?: SignedSnippetToken) => {
     registerAuthorizedSnippet(snippet);
     if (onInsertAuthorizedSnippet) {
-      onInsertAuthorizedSnippet(snippet);
+      onInsertAuthorizedSnippet(snippet, signedToken);
       if (onShowToast) {
         onShowToast({
           type: 'success',
-          title: 'Authorized Concept Inserted',
-          description: 'Added directly into your conceptual scratchpad.',
+          title: 'Authorized Concept Injected',
+          description: 'Inserted directly into editor memory via signed HMAC token. OS clipboard bypassed.',
         });
       }
     }
@@ -477,31 +487,20 @@ export function SkillTutorCopilot({
                       {m.authorizedSnippet}
                     </div>
 
-                    <div className="flex items-center space-x-2 pt-1">
-                      <button
-                        onClick={() => handleCopyAuthorized(m.authorizedSnippet!)}
-                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer"
-                      >
-                        {copiedSnippet === m.authorizedSnippet ? (
-                          <>
-                            <Check className="w-3 h-3 text-emerald-400" />
-                            <span>Copied</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" />
-                            <span>Copy Authorized Concept</span>
-                          </>
-                        )}
-                      </button>
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-1">
+                      <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono">
+                        <Lock className="w-3 h-3 text-emerald-400" />
+                        <span>HMAC Token: {m.signedToken ? m.signedToken.token.slice(0, 10) + '...' : 'Verified (TTL 60s)'}</span>
+                      </div>
 
                       {onInsertAuthorizedSnippet && (
                         <button
-                          onClick={() => handleInsertDirectly(m.authorizedSnippet!)}
-                          className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-md text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                          type="button"
+                          onClick={() => handleInsertDirectly(m.authorizedSnippet!, m.signedToken)}
+                          className="px-3 py-1.5 bg-gradient-to-r from-emerald-500/25 to-teal-500/25 hover:from-emerald-500/35 hover:to-teal-500/35 text-emerald-200 border border-emerald-500/50 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
                         >
-                          <ArrowRight className="w-3 h-3" />
-                          <span>Insert to Scratchpad</span>
+                          <Zap className="w-3.5 h-3.5 text-emerald-300" />
+                          <span>Direct Inject (Bypasses OS Clipboard)</span>
                         </button>
                       )}
                     </div>
@@ -520,8 +519,40 @@ export function SkillTutorCopilot({
         )}
       </div>
 
+      {/* Quick Problem Context Prompts */}
+      <div className="px-3 pt-2 bg-slate-950 border-t border-slate-900 flex items-center gap-1.5 overflow-x-auto text-[10px]">
+        <span className="text-slate-500 font-semibold shrink-0">Quick Ask:</span>
+        <button
+          type="button"
+          onClick={() => {
+            setStudentInput('What invariant or core algorithmic logic governs this problem?');
+          }}
+          className="px-2 py-0.5 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 whitespace-nowrap cursor-pointer transition-colors"
+        >
+          Core Invariant
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setStudentInput(`How do I structure the standard I/O and data types for ${activeLanguage.toUpperCase()}?`);
+          }}
+          className="px-2 py-0.5 rounded-full bg-slate-900 hover:bg-slate-800 text-sky-300 border border-slate-800 whitespace-nowrap cursor-pointer transition-colors"
+        >
+          {activeLanguage.toUpperCase()} I/O &amp; Types
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setStudentInput('What boundary conditions or extreme test inputs could fail?');
+          }}
+          className="px-2 py-0.5 rounded-full bg-slate-900 hover:bg-slate-800 text-amber-300 border border-slate-800 whitespace-nowrap cursor-pointer transition-colors"
+        >
+          Boundary Cases
+        </button>
+      </div>
+
       {/* Socratic Chat Input */}
-      <form onSubmit={handleSendQuestion} className="p-3 bg-slate-950 border-t border-slate-800 flex gap-2">
+      <form onSubmit={handleSendQuestion} className="p-3 bg-slate-950 flex gap-2">
         <input
           type="text"
           value={studentInput}

@@ -1,6 +1,7 @@
 import express from "express";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { executeCodeInSandbox, TestCaseInput } from "./compilerService";
 
 dotenv.config();
 
@@ -387,6 +388,217 @@ Currently seeking ${targetRole} opportunities where I can tackle challenging tec
   return res.json({ success: true, data: fallback, source: "fallback" });
 });
 
+// Endpoint: Initial Level Assessment based on Resume & LinkedIn
+apiRouter.post("/gemini/evaluate-initial-level", async (req, res) => {
+  const {
+    resumeText = "",
+    linkedinTextOrUrl = "",
+    targetRole = "Software Engineering Intern",
+    currentSkills = [],
+  } = req.body;
+
+  const cacheKey = `level_${targetRole}_${resumeText.slice(0, 40)}_${linkedinTextOrUrl.slice(0, 30)}`;
+
+  const prompt = `Act as an elite tech recruiter and principal engineering mentor assessing a student's initial capability level based on their Resume and LinkedIn profile.
+We evaluate candidates on 5 canonical platform levels:
+- Level 1: "Intern Novice" (Starting XP: 100 - 240) -> Coursework/intro projects only, passive bullet phrasing ("learned python", "helped team"), sparse or basic LinkedIn.
+- Level 2: "Rising Candidate" (Starting XP: 350 - 550) -> Built 1-2 functional personal projects, basic Git version control, beginning to structure resume bullets, emerging LinkedIn presence.
+- Level 3: "Tech Apprentice" (Starting XP: 750 - 1100) -> Deployed end-to-end full-stack or ML systems, quantified impact metrics on resume (latency, users, RPS, accuracy), strong portfolio on LinkedIn.
+- Level 4: "Interview Ready" (Starting XP: 1400 - 1850) -> Completed software internship or research lab role, modern stack (Docker, AWS, microservices, PyTorch, testing), well-quantified Google XYZ bullets, professional LinkedIn with active network.
+- Level 5: "Offer Magnet" (Starting XP: 2200 - 2800) -> Multiple prestigious internships or high-scale open-source maintainership, distributed systems/architecture depth, senior student leadership, outstanding recruiter appeal.
+
+Input:
+- Resume Content / Bullets:
+${resumeText || "No detailed resume provided. Student has introductory computer science coursework."}
+
+- LinkedIn Profile URL or Bio/Experience:
+${linkedinTextOrUrl || "No LinkedIn details provided."}
+
+- Target Internship Role:
+${targetRole}
+
+- Existing Skills (if any):
+${JSON.stringify(currentSkills)}
+
+Provide:
+1. Exact integer level (1 to 5) and matching levelTitle ('Intern Novice', 'Rising Candidate', 'Tech Apprentice', 'Interview Ready', 'Offer Magnet').
+2. Starting XP score strictly within that level's bracket.
+3. Confidence score (0-100).
+4. Candidate Archetype (e.g. 'Full-Stack Web Builder', 'Data & ML Specialist', 'Systems & Cloud Explorer', 'Early Aspiring Developer').
+5. Detailed rationale explaining why this initial level was determined from the resume and LinkedIn evidence.
+6. Deep resume diagnostic (bullet quality score 0-100, boolean for quantified metrics, strengths array, improvements needed array).
+7. Deep LinkedIn diagnostic (headline assessment, profile completeness score 0-100, actionable recommendations array).
+8. Extracted technical skills with category ('Frontend' | 'Backend' | 'Database' | 'DevOps' | 'AI/Data' | 'Language' | 'Core CS'), level ('Beginner' | 'Intermediate' | 'Advanced' | 'Expert'), masteryScore (0-100), and brief reasoning.
+9. 3 recommended next milestones to jump to the next level.
+`;
+
+  const schema = {
+    type: Type.OBJECT,
+    properties: {
+      level: { type: Type.INTEGER },
+      levelTitle: { type: Type.STRING },
+      startingXp: { type: Type.INTEGER },
+      confidenceScore: { type: Type.INTEGER },
+      candidateArchetype: { type: Type.STRING },
+      rationale: { type: Type.STRING },
+      resumeAnalysis: {
+        type: Type.OBJECT,
+        properties: {
+          bulletQualityScore: { type: Type.INTEGER },
+          quantifiedMetricsPresence: { type: Type.BOOLEAN },
+          strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+          improvementsNeeded: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: ["bulletQualityScore", "quantifiedMetricsPresence", "strengths", "improvementsNeeded"],
+      },
+      linkedInAnalysis: {
+        type: Type.OBJECT,
+        properties: {
+          headlineAssessment: { type: Type.STRING },
+          completenessScore: { type: Type.INTEGER },
+          recommendations: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: ["headlineAssessment", "completenessScore", "recommendations"],
+      },
+      extractedSkills: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            category: { type: Type.STRING },
+            level: { type: Type.STRING },
+            masteryScore: { type: Type.INTEGER },
+            reasoning: { type: Type.STRING },
+          },
+          required: ["name", "category", "level", "masteryScore"],
+        },
+      },
+      recommendedNextMilestones: { type: Type.ARRAY, items: { type: Type.STRING } },
+    },
+    required: [
+      "level",
+      "levelTitle",
+      "startingXp",
+      "confidenceScore",
+      "candidateArchetype",
+      "rationale",
+      "resumeAnalysis",
+      "linkedInAnalysis",
+      "extractedSkills",
+      "recommendedNextMilestones",
+    ],
+  };
+
+  const aiResult = await generateJsonWithFallback(prompt, schema, cacheKey);
+  if (aiResult && aiResult.level && aiResult.levelTitle) {
+    return res.json({ success: true, data: aiResult, source: "gemini" });
+  }
+
+  // Resilient Algorithmic Heuristic Fallback
+  const combinedText = `${resumeText} ${linkedinTextOrUrl}`.toLowerCase();
+  
+  // Keyword and metric counters
+  const hasInternship = /intern|co-?op|fellowship|engineer at|software engineering intern|developer at/.test(combinedText);
+  const multipleInternships = (combinedText.match(/intern|co-?op|developer at/g) || []).length >= 2;
+  const hasQuantMetrics = /([0-9]+%|\b[0-9]+x\b|[0-9]+ms|\$[0-9]+|\b[0-9]+k\b|[0-9]+\s*users|[0-9]+\s*requests)/.test(combinedText);
+  const hasCloudDevOps = /docker|kubernetes|aws|gcp|azure|ci\/cd|terraform|linux/.test(combinedText);
+  const hasFullStack = /react|node|express|typescript|next\.?js|tailwind|fastapi|django/.test(combinedText);
+  const hasDatabase = /sql|postgresql|mongodb|redis|prisma|database/.test(combinedText);
+  const hasAiData = /pytorch|tensorflow|pandas|numpy|machine learning|llm|deep learning/.test(combinedText);
+
+  let calculatedLevel = 2;
+  let levelTitle = 'Rising Candidate';
+  let startingXp = 420;
+  let confidence = 88;
+  let archetype = 'Full-Stack Software Aspirant';
+
+  if (multipleInternships && hasQuantMetrics && hasCloudDevOps) {
+    calculatedLevel = 5;
+    levelTitle = 'Offer Magnet';
+    startingXp = 2450;
+    confidence = 94;
+    archetype = 'High-Impact Production Engineer';
+  } else if ((hasInternship && hasQuantMetrics) || (hasCloudDevOps && hasFullStack && hasDatabase && hasQuantMetrics)) {
+    calculatedLevel = 4;
+    levelTitle = 'Interview Ready';
+    startingXp = 1580;
+    confidence = 92;
+    archetype = 'Internship-Experienced Software Engineer';
+  } else if (hasFullStack && hasDatabase && (hasQuantMetrics || combinedText.length > 250)) {
+    calculatedLevel = 3;
+    levelTitle = 'Tech Apprentice';
+    startingXp = 820;
+    confidence = 90;
+    archetype = 'End-to-End Application Developer';
+  } else if (hasFullStack || hasAiData || combinedText.length > 150) {
+    calculatedLevel = 2;
+    levelTitle = 'Rising Candidate';
+    startingXp = 420;
+    confidence = 86;
+    archetype = 'Project-Oriented Computer Science Student';
+  } else {
+    calculatedLevel = 1;
+    levelTitle = 'Intern Novice';
+    startingXp = 160;
+    confidence = 82;
+    archetype = 'Foundational CS Explorer';
+  }
+
+  const fallbackSkills = [
+    { name: 'TypeScript', category: 'Language', level: calculatedLevel >= 3 ? 'Advanced' : 'Intermediate', masteryScore: calculatedLevel >= 3 ? 82 : 64, reasoning: 'Strong modern frontend and server-side language adoption.' },
+    { name: 'React', category: 'Frontend', level: calculatedLevel >= 3 ? 'Advanced' : 'Intermediate', masteryScore: calculatedLevel >= 3 ? 85 : 68, reasoning: 'Foundational component-driven development in project history.' },
+    { name: 'Node.js', category: 'Backend', level: calculatedLevel >= 4 ? 'Advanced' : 'Intermediate', masteryScore: calculatedLevel >= 4 ? 80 : 62, reasoning: 'API architecture and backend integration.' },
+    { name: 'SQL', category: 'Database', level: calculatedLevel >= 3 ? 'Intermediate' : 'Beginner', masteryScore: calculatedLevel >= 3 ? 68 : 45, reasoning: 'Relational data modeling and queries.' },
+    { name: 'Git & GitHub', category: 'DevOps', level: calculatedLevel >= 3 ? 'Advanced' : 'Intermediate', masteryScore: calculatedLevel >= 3 ? 88 : 70, reasoning: 'Version control workflows and collaboration.' },
+  ];
+
+  if (hasCloudDevOps) {
+    fallbackSkills.push({ name: 'Docker', category: 'DevOps', level: 'Intermediate', masteryScore: 72, reasoning: 'Containerization demonstrated in deployment pipeline.' });
+  }
+
+  const fallbackAssessment = {
+    level: calculatedLevel,
+    levelTitle,
+    startingXp,
+    confidenceScore: confidence,
+    candidateArchetype: archetype,
+    rationale: `Calibrated at Level ${calculatedLevel}: ${levelTitle} based on comprehensive evaluation of technical scope, bullet impact density, and LinkedIn completeness. ${hasQuantMetrics ? 'Presence of quantified outcome metrics signals engineering maturity.' : 'Transitioning bullets to quantified Google XYZ format will rapidly accelerate candidate ranking.'} ${hasInternship ? 'Industry internship experience positions the candidate well ahead of standard coursework peers.' : 'Focusing on deployed production projects will bridge the gap to top-tier internship readiness.'}`,
+    resumeAnalysis: {
+      bulletQualityScore: calculatedLevel * 18 + 10,
+      quantifiedMetricsPresence: hasQuantMetrics,
+      strengths: [
+        'Identifiable modern tech stack matching current tech hiring criteria',
+        hasQuantMetrics ? 'Effective inclusion of measurable business and performance metrics' : 'Clear project descriptions demonstrating architectural ownership',
+        'Demonstrated ability to turn concept requirements into operational software',
+      ],
+      improvementsNeeded: [
+        hasQuantMetrics ? 'Add deeper system design tradeoffs (e.g. why Redis over Postgres for caching)' : 'Adopt Google XYZ formula across all bullets: Accomplished [X] measured by [Y] by doing [Z]',
+        'Highlight automated testing coverage and CI/CD workflow automation',
+      ],
+    },
+    linkedInAnalysis: {
+      headlineAssessment: linkedinTextOrUrl.includes('linkedin.com')
+        ? 'Valid professional LinkedIn URL linked. Ensure headline highlights exact target role and core frameworks.'
+        : 'Optimize headline beyond standard student title to include core specialties (e.g., Full-Stack React & Node.js Developer).',
+      completenessScore: linkedinTextOrUrl.length > 20 ? 84 : 58,
+      recommendations: [
+        'Pin live demo links and GitHub repositories to your Featured section',
+        'Add 10+ technical skills in the Skills section to boost recruiter algorithm indexing',
+        'Write an engaging first-person About narrative outlining project passions and technical focus',
+      ],
+    },
+    extractedSkills: fallbackSkills,
+    recommendedNextMilestones: [
+      `Complete 1 Diagnostic Quiz on your weakest technical domain to solidify mastery.`,
+      `Upgrade your top resume bullet with Google XYZ metrics using the AI Resume Optimizer.`,
+      `Deploy an end-to-end full-stack project with live URLs and README system architecture diagrams.`,
+    ],
+  };
+
+  return res.json({ success: true, data: fallbackAssessment, source: "fallback" });
+});
+
 // Endpoint: Project Ideas for Strong Skills
 apiRouter.post("/gemini/generate-projects", async (req, res) => {
   const { strongSkills = [], interests = [], targetRole = "Software Engineer" } = req.body;
@@ -605,6 +817,9 @@ apiRouter.post("/gemini/skilltutor-guidance", async (req, res) => {
     pastMistakes = [],
     weakAreas = [],
     studentHistory = {},
+    problemStatement = null,
+    activeLanguage = "python",
+    currentCode = "",
   } = req.body;
 
   // 1. Detect if the student is explicitly requesting the full solution or code dump
@@ -616,6 +831,11 @@ apiRouter.post("/gemini/skilltutor-guidance", async (req, res) => {
   const hasRawCode = /(class\s+Solution|def\s+[a-zA-Z_]|function\s+[a-zA-Z_]|public\s+(static\s+)?void|#include\s*<|import\s+java|const\s+\w+\s*=\s*\([^)]*\)\s*=>)/i.test(
     currentDraft + " " + studentQuery
   );
+
+  const activeProblemDesc = problemStatement?.description || problemContext || "";
+  const activeConstraints = problemStatement?.constraints || "";
+  const activeInputFormat = problemStatement?.inputFormat || "";
+  const activeOutputFormat = problemStatement?.outputFormat || "";
 
   const cacheKey = `skilltutor_${problemTitle.slice(0, 25)}_${mode}_${hintLevel}_${(studentQuery || "").slice(0, 25)}`;
 
@@ -636,32 +856,41 @@ STRICT PEDAGOGICAL POLICY:
    - In "debug" mode: Analyze their current thinking/draft to identify logical gaps or missing invariants.
    - In "concept" mode: Explain foundational theoretical mechanics and asymptotic trade-offs.
    - In "interview" mode: Act as a senior tech interviewer asking clarifying questions and challenging complexity trade-offs.
-4. Copied Answer Detection: If the student entered boilerplate code or solutions, instruct them to re-explain the mechanism conceptually in their own words.
-5. Adaptive Calibration:
+4. Active Language Context: The student may be writing code in "${activeLanguage.toUpperCase()}". If discussing implementation or syntax bugs, frame language-specific concepts (e.g. pointers & memory in C, vectors & STL in C++, list slices & indentation in Python) without giving working solutions.
+5. Copied Answer Detection: If the student entered boilerplate code or solutions, instruct them to re-explain the mechanism conceptually in their own words.
+6. Adaptive Calibration:
    - Past Mistakes: ${pastMistakes.length > 0 ? pastMistakes.join("; ") : "None recorded"}
    - Weak Areas: ${weakAreas.length > 0 ? weakAreas.join("; ") : "General foundations"}
    Adapt your guidance to address these past pitfalls specifically.
 
 Context:
-- Problem: "${problemTitle}"
-- Details: "${problemContext}"
+- Problem Title: "${problemTitle}"
+- Problem Description / Invariants: "${activeProblemDesc}"
+- Input Format: "${activeInputFormat}"
+- Output Format: "${activeOutputFormat}"
+- Constraints: "${activeConstraints}"
 - Topic: "${topic}"
+- Active Language: "${activeLanguage}"
 - Requested Hint Stage (1-5): ${hintLevel}
-- Student Draft: "${currentDraft || "Not started yet"}"
+- Student Conceptual Draft: "${currentDraft || "Not started yet"}"
+- Student Active Code (if any):
+\`\`\`${activeLanguage}
+${(currentCode || "").slice(0, 1500)}
+\`\`\`
 - Student Query: "${studentQuery || "Seeking guidance"}"
 - Student Asks For Direct Answer: ${asksForDirectAnswer ? "YES - REFUSE POLITELY AND HINT" : "NO"}
 - Raw Code Detected: ${hasRawCode ? "YES - DEMAND RE-EXPLANATION" : "NO"}
 
 Output:
-- socraticNudge: Conversational mentor guidance (strictly NO working code).
+- socraticNudge: Conversational mentor guidance tailored directly to "${problemTitle}" (strictly NO working code).
 - guidingQuestion: One sharp question for the student to answer.
 - conceptualAnalogy: A vivid real-world analogy illuminating the core pattern.
-- likelyBugLocation: Key pitfall or boundary case where learners fail.
-- authorizedSnippet: Exactly ONE concise conceptual token (max 20 words, e.g. "[Concept] Monotonic Invariant: Evict smaller elements from tail before pushing current index").
+- likelyBugLocation: Key pitfall or boundary case where learners fail for this specific problem.
+- authorizedSnippet: Exactly ONE concise conceptual token (max 20 words, e.g. "[Concept] Invariant: Move left pointer when sum < target").
 - hintTierName: Name matching the 5 progressive stages.
 - isRefusal: boolean (true if student asked for direct answer).
 - requiresReExplanation: boolean (true if student pasted code).
-- adaptiveNote: Brief note on how this guidance was adapted to their history.
+- adaptiveNote: Brief note on how this guidance was adapted to their history and problem constraints.
 `;
 
   const schema = {
@@ -793,9 +1022,11 @@ apiRouter.post("/gemini/skilltutor-evaluate", async (req, res) => {
     refusalGivenCount = 0,
     copiedAnswerWarnings = 0,
     reExplanationProvided = false,
+    pasteAttemptsCount = 0,
+    integrityScore = 100,
   } = req.body;
 
-  const cacheKey = `eval_${problemTitle.slice(0, 25)}_${studentAnswer.slice(0, 35)}_${hintsUsedCount}`;
+  const cacheKey = `eval_${problemTitle.slice(0, 25)}_${studentAnswer.slice(0, 35)}_${hintsUsedCount}_${pasteAttemptsCount}`;
 
   // Check for copied code patterns in the submission
   const detectedCopiedCode = /(class\s+Solution|def\s+[a-zA-Z_]\w*\(|function\s+[a-zA-Z_]|public\s+static\s+void|#include\s*<)/i.test(
@@ -822,19 +1053,22 @@ Telemetry:
 - Evaluation Attempts: ${attemptsCount}
 - Copied Code Pattern Detected: ${detectedCopiedCode ? "YES" : "NO"}
 - Re-explanation provided: ${reExplanationProvided ? "YES" : "NO"}
+- Intercepted Paste Attempts: ${pasteAttemptsCount}
+- Anti-Cheat Integrity Score: ${integrityScore}%
 
 Evaluate their conceptual understanding and compute:
 1. score (0 to 100): Based on conceptual correctness, depth, complexity awareness, and clarity. If copied code is detected and not re-explained, cap score at 50.
 2. passed: true if score >= 70.
 3. conceptualDepth: "Surface / Incomplete", "Solid Foundations", or "Deep & Nuanced".
 4. independenceScore (0 to 100): Autonomy score. High when few hints are used and student solved independently.
-5. aiRelianceScore (0 to 100): AI dependency score. High when many hints or answers were requested.
-6. selfRelianceRating: "Fully Independent" (0 hints), "Guided Breakthrough" (1-2 hints), or "Assisted Learner" (3+ hints).
-7. strengths: Array of 2-3 specific conceptual strengths shown in their write-up.
-8. cognitiveGaps: Array of 1-2 edge cases, blindspots, or trade-offs they omitted.
-9. socraticFeedback: 2-3 sentences of encouraging, mentor-like appraisal.
-10. careerReadinessVerdict: How a tech interviewer would perceive this response (e.g. "Strong Candidate: Defends asymptotic trade-offs from first principles").
-11. requiresReExplanation: boolean (true if copied code was detected).
+5. aiRelianceScore (0 to 100): AI dependency score. High when many hints or paste attempts were intercepted.
+6. integritySignal: "Pristine (100% Organic)", "Verified Organic", "Flagged Pastes Detected", or "Elevated AI Reliance".
+7. selfRelianceRating: "Fully Independent" (0 hints), "Guided Breakthrough" (1-2 hints), or "Assisted Learner" (3+ hints).
+8. strengths: Array of 2-3 specific conceptual strengths shown in their write-up.
+9. cognitiveGaps: Array of 1-2 edge cases, blindspots, or trade-offs they omitted.
+10. socraticFeedback: 2-3 sentences of encouraging, mentor-like appraisal.
+11. careerReadinessVerdict: How a tech interviewer would perceive this response (e.g. "Strong Candidate: Defends asymptotic trade-offs from first principles").
+12. requiresReExplanation: boolean (true if copied code was detected).
 `;
 
   const schema = {
@@ -845,6 +1079,7 @@ Evaluate their conceptual understanding and compute:
       conceptualDepth: { type: Type.STRING },
       independenceScore: { type: Type.INTEGER },
       aiRelianceScore: { type: Type.INTEGER },
+      integritySignal: { type: Type.STRING },
       selfRelianceRating: { type: Type.STRING },
       strengths: {
         type: Type.ARRAY,
@@ -864,6 +1099,7 @@ Evaluate their conceptual understanding and compute:
       "conceptualDepth",
       "independenceScore",
       "aiRelianceScore",
+      "integritySignal",
       "selfRelianceRating",
       "strengths",
       "cognitiveGaps",
@@ -888,17 +1124,24 @@ Evaluate their conceptual understanding and compute:
     baseScore = Math.min(50, baseScore);
   }
 
-  // Calculate Independence and AI Reliance
-  const rawIndependence = 100 - (hintsUsedCount * 12) - (refusalGivenCount * 8) - (copiedAnswerWarnings * 10) + (attemptsCount === 1 ? 5 : 0);
-  const independenceScore = Math.max(15, Math.min(100, Math.round(rawIndependence)));
-  const aiRelianceScore = Math.max(0, Math.min(85, 100 - independenceScore));
+  // Calculate Independence and AI Reliance factoring in paste attempts
+  const rawIndependence = 100 - (hintsUsedCount * 10) - (refusalGivenCount * 8) - (copiedAnswerWarnings * 8) - (pasteAttemptsCount * 6) + (attemptsCount === 1 ? 5 : 0);
+  const calculatedIndependence = Math.max(15, Math.min(100, Math.round(rawIndependence)));
+  const calculatedAiReliance = Math.max(0, Math.min(90, 100 - calculatedIndependence + (pasteAttemptsCount * 5)));
+  const computedIntegritySignal =
+    pasteAttemptsCount === 0
+      ? "Pristine (100% Organic)"
+      : pasteAttemptsCount <= 2
+      ? "Verified Organic (Pastes Intercepted & Resolved)"
+      : "Elevated AI Reliance (Multiple Paste Warnings)";
 
   const fallbackEval = {
     score: baseScore,
     passed: baseScore >= 70,
     conceptualDepth: baseScore >= 85 ? "Deep & Nuanced" : baseScore >= 70 ? "Solid Foundations" : "Surface / Incomplete",
-    independenceScore,
-    aiRelianceScore,
+    independenceScore: calculatedIndependence,
+    aiRelianceScore: calculatedAiReliance,
+    integritySignal: computedIntegritySignal,
     selfRelianceRating: hintsUsedCount === 0 ? "Fully Independent" : hintsUsedCount <= 2 ? "Guided Breakthrough" : "Assisted Learner",
     strengths: [
       "Articulated algorithmic mechanics using first-principles reasoning without relying on pasted code.",
@@ -930,10 +1173,11 @@ apiRouter.post("/gemini/skilltutor-report", async (req, res) => {
     avgHintsPerProblem = 1.2,
     avgIndependenceScore = 82,
     avgAiRelianceScore = 18,
+    totalPasteAttempts = 0,
     topicsSolved = ["Algorithms", "System Architecture", "SQL Optimization"],
   } = req.body;
 
-  const cacheKey = `report_${studentProfile.name || "student"}_${challengesCompleted}_${avgConceptualScore}_${avgIndependenceScore}`;
+  const cacheKey = `report_${studentProfile.name || "student"}_${challengesCompleted}_${avgConceptualScore}_${avgIndependenceScore}_${totalPasteAttempts}`;
 
   const prompt = `Generate an executive "SkillTutor Career & Conceptual Growth Report" for a student preparing for software engineering and tech internships.
 Student Name: ${studentProfile.name || "Student Candidate"}
@@ -943,11 +1187,13 @@ Average Conceptual Score: ${avgConceptualScore}%
 Average Hints Used: ${avgHintsPerProblem}
 Independence Score: ${avgIndependenceScore}%
 AI Reliance Score: ${avgAiRelianceScore}%
+Total Intercepted Paste Attempts: ${totalPasteAttempts}
 Topics Practiced: ${topicsSolved.join(", ")}
 
 Requirements:
 - Emphasize that all answers were written organically in a conceptual, anti-paste environment (100% anti-cheat integrity).
 - Quantify independence vs AI reliance to show that the candidate derives logic rather than relying on LLM solutions.
+- Highlight the integrity score: candidate solved problems with ${totalPasteAttempts === 0 ? "zero external pastes (100% organic derivation)" : `${totalPasteAttempts} blocked paste attempts fully cleared by manual conceptual explanations`}.
 - Provide an objective assessment of their problem-solving autonomy and interview readiness.
 - Include topic breakdown with recommendations.
 `;
@@ -1105,6 +1351,286 @@ apiRouter.post("/platforms/sync-streak", async (req, res) => {
   }
 
   return res.status(400).json({ success: false, message: "Unknown platform" });
+});
+
+// ==========================================
+// SkillTutor Python, C, C++ Compiler Endpoints
+// ==========================================
+
+// Endpoint: Execute Code with Multi-Language Compiler (Python, C, C++)
+apiRouter.post("/skilltutor/compile", async (req, res) => {
+  const {
+    language = "python",
+    code = "",
+    stdin = "",
+    testCases = [],
+  } = req.body;
+
+  if (!code || typeof code !== "string" || !code.trim()) {
+    return res.status(400).json({
+      success: false,
+      message: "Code must not be empty.",
+    });
+  }
+
+  if (!["python", "c", "cpp"].includes(language)) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid language '${language}'. Supported: python, c, cpp`,
+    });
+  }
+
+  try {
+    const result = await executeCodeInSandbox(
+      language as "python" | "c" | "cpp",
+      code,
+      stdin,
+      testCases as TestCaseInput[]
+    );
+
+    return res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err: any) {
+    console.error("Execution error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Failed to execute code in sandbox environment.",
+    });
+  }
+});
+
+// Endpoint: Socratic AI Compiler Guidance & Diagnostics
+apiRouter.post("/skilltutor/diagnose-compiler", async (req, res) => {
+  const {
+    language = "python",
+    code = "",
+    errorOutput = "",
+    problemStatement = null,
+    studentQuery = "",
+  } = req.body;
+
+  const problemTitle = problemStatement?.title || "Active Coding Problem";
+  const problemDesc = problemStatement?.description || problemStatement?.conceptualScenario || "";
+  const constraints = problemStatement?.constraints || "";
+
+  const prompt = `You are "SkillTutor", an expert Socratic Compiler & Systems Programming Mentor.
+The student is working on a problem in ${language.toUpperCase()}.
+Their program produced an error (compilation error, runtime crash, wrong test output, or syntax issue).
+
+PEDAGOGICAL DIRECTIVES:
+1. Explain the underlying ROOT CAUSE clearly, but DO NOT provide the full corrected code or spoon-feed the direct solution!
+2. If it is C or C++:
+   - Identify memory model issues (uninitialized pointers, segmentation faults, buffer overflow, dangling pointers, missing headers like <stdlib.h> or <iostream>, type mismatches).
+   - Point to the specific line or construct that violates language semantics.
+3. If it is Python:
+   - Identify syntax errors, IndentationError, IndexError, KeyError, recursion depth, or algorithmic complexity traps.
+4. Relate the bug back to the active problem statement: "${problemTitle}".
+5. Offer 1 Socratic guiding question and 1 small hint to help them fix it themselves.
+
+Problem Details:
+- Title: ${problemTitle}
+- Problem Statement: ${problemDesc}
+- Constraints: ${constraints}
+- Language: ${language}
+- Student Code:
+\`\`\`${language}
+${code.slice(0, 3000)}
+\`\`\`
+- Compiler / Runtime / Test Error Output:
+\`\`\`
+${(errorOutput || "").slice(0, 2000)}
+\`\`\`
+- Student's Question: "${studentQuery || "Why is my code failing?"}"
+
+Format your response strictly as JSON with keys:
+- rootCause: Clear, concise explanation of why the compiler or runtime failed.
+- lineReference: Specific line or function area where the issue occurred (e.g. "Line 14 in loop header" or "Pointer dereference in main()").
+- socraticHint: A guiding clue or mental model to resolve the issue without giving the full code.
+- problemConnection: How this relates to the invariants or constraints of "${problemTitle}".
+- guidingQuestion: One sharp question for the student to consider.`;
+
+  try {
+    const ai = getGeminiClient();
+    if (ai && Date.now() >= geminiCooldownUntil) {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              rootCause: { type: Type.STRING },
+              lineReference: { type: Type.STRING },
+              socraticHint: { type: Type.STRING },
+              problemConnection: { type: Type.STRING },
+              guidingQuestion: { type: Type.STRING },
+            },
+            required: ["rootCause", "socraticHint", "guidingQuestion"],
+          },
+        },
+      });
+
+      if (response.text) {
+        const parsed = JSON.parse(response.text);
+        return res.json({ success: true, data: parsed, source: "gemini" });
+      }
+    }
+  } catch (err: any) {
+    console.warn("Gemini compiler diagnostic error, using Socratic fallback:", err?.message);
+    if (err?.status === 429 || err?.message?.includes("429")) {
+      geminiCooldownUntil = Date.now() + 60000;
+    }
+  }
+
+  // Heuristic Socratic Fallback
+  let rootCause = "The program encountered an execution issue during compilation or runtime.";
+  let lineReference = "Check loop bounds and variable declarations.";
+  let socraticHint = "Trace the program step-by-step with a minimal test case on paper.";
+  let guidingQuestion = "What values do your variables hold right before the error occurs?";
+
+  if (language === "c" || language === "cpp") {
+    if (/segmentation fault/i.test(errorOutput)) {
+      rootCause = "Segmentation Fault (SIGSEGV): The program attempted to access memory that does not belong to it, such as dereferencing a NULL or uninitialized pointer, or reading past allocated array bounds.";
+      lineReference = "Array indexing or pointer dereference (*ptr).";
+      socraticHint = "Ensure all allocated pointers are checked for NULL before use, and confirm array indices stay strictly within 0 to N-1.";
+      guidingQuestion = "Are you accessing index [N] when the array size is N?";
+    } else if (/error:/i.test(errorOutput)) {
+      rootCause = "Compilation Error: The compiler detected syntax errors or undeclared symbols before building the executable.";
+      lineReference = errorOutput.split("\n")[0] || "Top of source";
+      socraticHint = "Look at the first error reported by GCC/G++; fixing the first syntax error often eliminates subsequent cascading warnings.";
+      guidingQuestion = "Did you include all necessary header files (#include <stdio.h>, <stdlib.h>, <iostream>, etc.)?";
+    }
+  } else if (language === "python") {
+    if (/IndexError/i.test(errorOutput)) {
+      rootCause = "IndexError: List index out of range. You tried to access an element at an index that exceeds the current length of the list.";
+      lineReference = "List indexing brackets [i]";
+      socraticHint = "Check whether your loop runs up to len(items) instead of len(items)-1, especially when accessing i+1.";
+      guidingQuestion = "What is the maximum index your loop reaches on a 1-element input?";
+    } else if (/SyntaxError|IndentationError/i.test(errorOutput)) {
+      rootCause = "Python Syntax/Indentation Error: The Python interpreter found misaligned blocks or missing punctuation.";
+      lineReference = errorOutput.split("\n").slice(-2)[0] || "Indented block";
+      socraticHint = "Ensure consistent indentation (4 spaces) throughout the function block.";
+      guidingQuestion = "Are you mixing tabs and spaces or missing a colon after an if/for/def statement?";
+    }
+  }
+
+  return res.json({
+    success: true,
+    data: {
+      rootCause,
+      lineReference,
+      socraticHint,
+      problemConnection: `Consider how the constraints for '${problemTitle}' dictate memory and pointer limits.`,
+      guidingQuestion,
+    },
+    source: "fallback",
+  });
+});
+
+// Endpoint: AI-Assisted Custom Problem Statement Generator
+apiRouter.post("/skilltutor/generate-problem", async (req, res) => {
+  const { promptText = "Two Sum with sorted array", difficulty = "Intermediate Architecture", topic = "Algorithms" } = req.body;
+
+  const prompt = `You are an expert Computer Science contest problem designer.
+Generate a structured, high-quality technical coding challenge based on this prompt: "${promptText}".
+Topic: ${topic}
+Difficulty: ${difficulty}
+
+Output strictly JSON with:
+- title: Short, engaging problem title
+- topic: Category (e.g. Arrays & Pointers, Dynamic Programming, Graphs)
+- difficulty: One of 'Conceptual Foundational', 'Intermediate Architecture', 'Advanced Trade-offs'
+- description: Clear problem description explaining the scenario, requirements, and goal
+- inputFormat: Exact specification of stdin input format
+- outputFormat: Exact specification of stdout output format
+- constraints: Performance, memory, and value constraints (e.g. "1 <= N <= 10^5, Time: 2.0s, Space: O(N)")
+- testCases: Array of 3 test cases, each with { id: "tc1", input: "string", expectedOutput: "string", explanation: "string" }
+- starterCode: Object with keys { python: "string", c: "string", cpp: "string" } containing clean standard I/O starter templates`;
+
+  try {
+    const ai = getGeminiClient();
+    if (ai && Date.now() >= geminiCooldownUntil) {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              topic: { type: Type.STRING },
+              difficulty: { type: Type.STRING },
+              description: { type: Type.STRING },
+              inputFormat: { type: Type.STRING },
+              outputFormat: { type: Type.STRING },
+              constraints: { type: Type.STRING },
+              testCases: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.STRING },
+                    input: { type: Type.STRING },
+                    expectedOutput: { type: Type.STRING },
+                    explanation: { type: Type.STRING },
+                  },
+                  required: ["id", "input", "expectedOutput"],
+                },
+              },
+              starterCode: {
+                type: Type.OBJECT,
+                properties: {
+                  python: { type: Type.STRING },
+                  c: { type: Type.STRING },
+                  cpp: { type: Type.STRING },
+                },
+                required: ["python", "c", "cpp"],
+              },
+            },
+            required: ["title", "topic", "description", "testCases", "starterCode"],
+          },
+        },
+      });
+
+      if (response.text) {
+        const parsed = JSON.parse(response.text);
+        return res.json({ success: true, data: parsed, source: "gemini" });
+      }
+    }
+  } catch (err: any) {
+    console.warn("Problem generation Gemini error, using fallback template:", err?.message);
+    if (err?.status === 429 || err?.message?.includes("429")) {
+      geminiCooldownUntil = Date.now() + 60000;
+    }
+  }
+
+  // Fallback problem template
+  return res.json({
+    success: true,
+    data: {
+      title: promptText.length > 3 ? promptText.charAt(0).toUpperCase() + promptText.slice(1) : "Custom Algorithm Challenge",
+      topic: topic || "Data Structures & Algorithms",
+      difficulty: difficulty || "Intermediate Architecture",
+      description: `Given a collection of data elements according to the prompt "${promptText}", design an optimal algorithm in Python, C, or C++ that processes the input and produces the required output under the defined constraints. Ensure O(1) or minimal auxiliary memory where applicable.`,
+      inputFormat: "First line contains N. Second line contains N space-separated integers.",
+      outputFormat: "Print the computed result on a single line.",
+      constraints: "1 <= N <= 10^5, -10^9 <= A[i] <= 10^9, Time Limit: 2.0s, Space Limit: 256MB",
+      testCases: [
+        { id: "tc1", input: "5\n1 2 3 4 5", expectedOutput: "15", explanation: "Sum of elements 1 to 5" },
+        { id: "tc2", input: "3\n10 20 30", expectedOutput: "60", explanation: "Sum of elements 10, 20, 30" },
+      ],
+      starterCode: {
+        python: `import sys\n\ndef solve():\n    lines = sys.stdin.read().split()\n    if not lines:\n        return\n    n = int(lines[0])\n    nums = [int(x) for x in lines[1:n+1]]\n    # Implement your algorithm here\n    print(sum(nums))\n\nif __name__ == '__main__':\n    solve()\n`,
+        c: `#include <stdio.h>\n#include <stdlib.h>\n\nint main() {\n    int n;\n    if (scanf("%d", &n) != 1) return 0;\n    long long sum = 0;\n    for (int i = 0; i < n; i++) {\n        int val;\n        scanf("%d", &val);\n        sum += val;\n    }\n    printf("%lld\\n", sum);\n    return 0;\n}\n`,
+        cpp: `#include <iostream>\n#include <vector>\n#include <numeric>\n\nusing namespace std;\n\nint main() {\n    ios_base::sync_with_stdio(false);\n    cin.tie(NULL);\n    int n;\n    if (!(cin >> n)) return 0;\n    vector<long long> nums(n);\n    long long sum = 0;\n    for (int i = 0; i < n; i++) {\n        cin >> nums[i];\n        sum += nums[i];\n    }\n    cout << sum << "\\n";\n    return 0;\n}\n`,
+      },
+    },
+    source: "fallback",
+  });
 });
 
 // Root API descriptor (only on /api)

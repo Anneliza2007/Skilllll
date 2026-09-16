@@ -13,6 +13,7 @@ import { ProfileModal } from './components/ProfileModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { LoginScreen } from './components/LoginScreen';
 import { AdminDashboard } from './components/AdminDashboard';
+import { InitialLevelCalibratorModal } from './components/InitialLevelCalibratorModal';
 import {
   INITIAL_PROFILE,
   INITIAL_INTERNSHIPS,
@@ -20,7 +21,7 @@ import {
   DEFAULT_DAILY_TODOS,
   LEVEL_THRESHOLDS,
 } from './data/mockData';
-import { StudentProfile, Internship, UserStats, SkillLevel, DailyTodoItem, PracticePlatform, AuthUser } from './types';
+import { StudentProfile, Internship, UserStats, SkillLevel, DailyTodoItem, PracticePlatform, AuthUser, InitialLevelAssessment } from './types';
 
 export default function App() {
   // Authentication state
@@ -88,6 +89,7 @@ export default function App() {
   >('internships');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isPromptLabOpen, setIsPromptLabOpen] = useState(false);
+  const [isLevelCalibratorOpen, setIsLevelCalibratorOpen] = useState(false);
   const [promptLabInitialId, setPromptLabInitialId] = useState<string | undefined>(undefined);
   const [isAiMatching, setIsAiMatching] = useState(false);
   const [quizInitialTopic, setQuizInitialTopic] = useState<string | undefined>(undefined);
@@ -498,6 +500,52 @@ export default function App() {
     });
   };
 
+  // Handle Applying Initial Level Assessment from LinkedIn & Resume
+  const handleApplyInitialLevelAssessment = (assessment: InitialLevelAssessment) => {
+    // 1. Update stats with calibrated level, levelTitle, and starting XP
+    setStats((prev) => {
+      const targetLevel = assessment.level;
+      const newXp = Math.max(prev.xp, assessment.startingXp);
+      const matchedTier = LEVEL_THRESHOLDS.find((t) => t.level === targetLevel) || LEVEL_THRESHOLDS[targetLevel - 1];
+      const newTitle = assessment.levelTitle || matchedTier?.title || prev.levelTitle;
+
+      return {
+        ...prev,
+        level: targetLevel,
+        levelTitle: newTitle,
+        xp: newXp,
+        xpHistory: [
+          {
+            id: 'xp_calibrated_' + Date.now(),
+            description: `Calibrated Initial Level ${targetLevel}: ${assessment.levelTitle} (${assessment.candidateArchetype}) based on LinkedIn & Resume`,
+            amount: assessment.startingXp,
+            timestamp: 'Just now',
+          },
+          ...prev.xpHistory.slice(0, 14),
+        ],
+      };
+    });
+
+    // 2. Add any newly extracted skills to student profile
+    setProfile((prev) => {
+      const existingNames = new Set(prev.skills.map((s) => s.toLowerCase()));
+      const newSkillsToAdd = assessment.extractedSkills
+        .map((s) => s.name)
+        .filter((name) => !existingNames.has(name.toLowerCase()));
+
+      return {
+        ...prev,
+        skills: [...prev.skills, ...newSkillsToAdd],
+      };
+    });
+
+    showToast({
+      type: 'xp',
+      title: `Calibrated Level ${assessment.level}: ${assessment.levelTitle}!`,
+      description: `Your profile has been calibrated with +${assessment.startingXp} XP and ${assessment.extractedSkills.length} verified skills based on your credentials.`,
+    });
+  };
+
   // Auth Handlers
   const handleLoginSuccess = (user: AuthUser) => {
     setCurrentUser(user);
@@ -584,6 +632,7 @@ export default function App() {
         onOpenProfile={() => setIsProfileOpen(true)}
         onClaimDailyStreak={handleClaimDailyStreak}
         onOpenPromptLab={handleOpenPromptLab}
+        onOpenLevelCalibrator={() => setIsLevelCalibratorOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -616,6 +665,8 @@ export default function App() {
             initialRole={resumeInitialRole}
             onProfileOptimized={handleProfileOptimized}
             onOpenPromptLab={handleOpenPromptLab}
+            onOpenLevelCalibrator={() => setIsLevelCalibratorOpen(true)}
+            onApplyInitialLevel={handleApplyInitialLevelAssessment}
           />
         )}
 
@@ -716,6 +767,7 @@ export default function App() {
             description: 'Loaded profile template with curated skills and resume bullets.',
           });
         }}
+        onOpenLevelCalibrator={() => setIsLevelCalibratorOpen(true)}
       />
 
       {/* AI Career Prompt Lab Modal */}
@@ -724,6 +776,15 @@ export default function App() {
         onClose={() => setIsPromptLabOpen(false)}
         profile={profile}
         initialPromptId={promptLabInitialId}
+      />
+
+      {/* Initial Level Calibrator Modal (Resume & LinkedIn AI Analyzer) */}
+      <InitialLevelCalibratorModal
+        isOpen={isLevelCalibratorOpen}
+        onClose={() => setIsLevelCalibratorOpen(false)}
+        profile={profile}
+        stats={stats}
+        onApplyAssessment={handleApplyInitialLevelAssessment}
       />
 
       {/* Toast Notifications Container */}

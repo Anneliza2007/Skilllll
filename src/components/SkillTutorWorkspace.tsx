@@ -26,6 +26,8 @@ import {
   Activity,
   BarChart3,
   HelpCircle,
+  Lock,
+  Code2,
 } from 'lucide-react';
 import {
   StudentProfile,
@@ -35,13 +37,27 @@ import {
   SkillTutorReport,
   SkillTutorMode,
   SkillTutorRevisionLog,
+  PasteViolationType,
+  SkillTutorPasteAttempt,
+  SignedSnippetToken,
 } from '../types';
 import { SKILL_TUTOR_CHALLENGES } from '../data/skillTutorData';
 import { SkillTutorCopilot } from './SkillTutorCopilot';
+import { AntiCheatCodeMirror } from './AntiCheatCodeMirror';
+import { AntiPasteConceptualEditor } from './AntiPasteConceptualEditor';
+import { AntiPasteViolationModal } from './AntiPasteViolationModal';
+import { SkillTutorCompiler } from './SkillTutorCompiler';
+import { AddProblemModal } from './AddProblemModal';
 import {
   isAuthorizedCopilotSnippet,
   detectCodeBlockPatterns,
 } from '../utils/skillTutorClipboard';
+import {
+  injectAuthorizedSnippetDirectly,
+  generateSignedCopilotToken,
+  calculateIntegrityScore,
+  createPasteAttemptLog,
+} from '../utils/skillTutorSecurity';
 
 interface SkillTutorWorkspaceProps {
   profile: StudentProfile;
@@ -62,8 +78,23 @@ export function SkillTutorWorkspace({
   onShowToast,
   onNavigateToTab,
 }: SkillTutorWorkspaceProps) {
+  // Custom problems & compiler state
+  const [customChallenges, setCustomChallenges] = useState<SkillTutorChallenge[]>(() => {
+    try {
+      const saved = localStorage.getItem('skilltutor_custom_challenges');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isAddProblemModalOpen, setIsAddProblemModalOpen] = useState(false);
+
+  const allChallenges = useMemo(() => {
+    return [...customChallenges, ...SKILL_TUTOR_CHALLENGES];
+  }, [customChallenges]);
+
   const [selectedChallenge, setSelectedChallenge] = useState<SkillTutorChallenge>(
-    SKILL_TUTOR_CHALLENGES[0]
+    allChallenges[0] || SKILL_TUTOR_CHALLENGES[0]
   );
   const [studentAnswer, setStudentAnswer] = useState<string>('');
   const [hintsUsedCount, setHintsUsedCount] = useState<number>(0);
@@ -73,6 +104,21 @@ export function SkillTutorWorkspace({
   // SkillTutor Pedagogical Mode
   const [activeMode, setActiveMode] = useState<SkillTutorMode>('hint');
 
+  // Hardened Anti-Cheat Workspace Configuration
+  const [editorMode, setEditorMode] = useState<'codemirror' | 'conceptual'>('codemirror');
+  const [pasteAttempts, setPasteAttempts] = useState<SkillTutorPasteAttempt[]>(() => {
+    try {
+      const saved = localStorage.getItem('skilltutor_paste_attempts');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [violationModal, setViolationModal] = useState<{
+    isOpen: boolean;
+    attempt: SkillTutorPasteAttempt | null;
+  }>({ isOpen: false, attempt: null });
+
   // Telemetry state: Time on task, attempts, revisions, refusal & copied tracking
   const [timeOnTaskSeconds, setTimeOnTaskSeconds] = useState<number>(0);
   const [attemptsCount, setAttemptsCount] = useState<number>(0);
@@ -81,6 +127,11 @@ export function SkillTutorWorkspace({
   const [revisions, setRevisions] = useState<SkillTutorRevisionLog[]>([]);
   const [showRevisionDrawer, setShowRevisionDrawer] = useState<boolean>(false);
   const lastRevisionRef = useRef<{ text: string; time: number }>({ text: '', time: Date.now() });
+
+  // Persist anti-cheat paste attempts
+  useEffect(() => {
+    localStorage.setItem('skilltutor_paste_attempts', JSON.stringify(pasteAttempts));
+  }, [pasteAttempts]);
 
   // Anti-paste shield alert banner state
   const [pasteAlert, setPasteAlert] = useState<{
@@ -99,10 +150,31 @@ export function SkillTutorWorkspace({
     }
   });
 
-  // Career Growth Report state
-  const [activeSubTab, setActiveSubTab] = useState<'solver' | 'report'>('solver');
+  // Career Growth Report & Multi-Mode subtabs
+  const [activeSubTab, setActiveSubTab] = useState<'compiler' | 'solver' | 'report'>('compiler');
   const [growthReport, setGrowthReport] = useState<SkillTutorReport | null>(null);
   const [isLoadingReport, setIsLoadingReport] = useState<boolean>(false);
+
+  const handleSaveCustomProblem = (newChallenge: SkillTutorChallenge) => {
+    setCustomChallenges((prev) => {
+      const existingIdx = prev.findIndex((p) => p.id === newChallenge.id);
+      let updated: SkillTutorChallenge[];
+      if (existingIdx >= 0) {
+        updated = [...prev];
+        updated[existingIdx] = newChallenge;
+      } else {
+        updated = [newChallenge, ...prev];
+      }
+      localStorage.setItem('skilltutor_custom_challenges', JSON.stringify(updated));
+      return updated;
+    });
+    setSelectedChallenge(newChallenge);
+    onShowToast({
+      type: 'success',
+      title: 'Problem Statement Ready',
+      description: `"${newChallenge.title}" saved with Python, C, and C++ compiler support!`,
+    });
+  };
 
   // Persist submissions
   useEffect(() => {
@@ -136,20 +208,30 @@ export function SkillTutorWorkspace({
     return mistakes.slice(0, 4);
   }, [submissionHistory]);
 
-  // Real-time Independence Score & AI Reliance Score calculations
+  // Anti-Cheat Integrity Calculation & Unresolved Violations
+  const { score: integrityScore, signal: integritySignal } = useMemo(() => {
+    return calculateIntegrityScore(pasteAttempts);
+  }, [pasteAttempts]);
+
+  const unresolvedViolationsCount = useMemo(() => {
+    return pasteAttempts.filter((a) => !a.resolved).length;
+  }, [pasteAttempts]);
+
+  // Real-time Independence Score & AI Reliance Score calculations (factoring anti-cheat integrity)
   const independenceScore = useMemo(() => {
     const raw =
       100 -
       hintsUsedCount * 10 -
       refusalCount * 12 -
-      copiedWarnings * 10 +
+      copiedWarnings * 8 -
+      pasteAttempts.length * 6 +
       (currentSubmission?.passed ? 5 : 0);
     return Math.max(10, Math.min(100, Math.round(raw)));
-  }, [hintsUsedCount, refusalCount, copiedWarnings, currentSubmission]);
+  }, [hintsUsedCount, refusalCount, copiedWarnings, pasteAttempts.length, currentSubmission]);
 
   const aiRelianceScore = useMemo(() => {
-    return Math.max(0, Math.min(90, 100 - independenceScore));
-  }, [independenceScore]);
+    return Math.max(0, Math.min(90, 100 - independenceScore + pasteAttempts.length * 4));
+  }, [independenceScore, pasteAttempts.length]);
 
   // Track code revisions in real time
   const handleStudentAnswerChange = (val: string) => {
@@ -187,53 +269,70 @@ export function SkillTutorWorkspace({
     return `${mins}m ${secs < 10 ? '0' : ''}${secs}s`;
   }, [timeOnTaskSeconds]);
 
-  // Handle Strict Anti-Paste Event
-  const handlePasteIntoAnswer = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    const pastedText = e.clipboardData.getData('text');
-
-    if (!pastedText) return;
-
-    // Verify whether this text is an authorized snippet from SkillTutor Copilot
-    if (isAuthorizedCopilotSnippet(pastedText)) {
-      setPasteAlert({
-        show: true,
-        type: 'authorized',
-        message: '✓ Verified SkillTutor Copilot Concept: Pasting permitted for authorized hints.',
-      });
-      setTimeout(() => setPasteAlert(null), 4000);
-      return; // Allow paste to occur
-    }
-
-    // Otherwise, external text / code is strictly prohibited
-    e.preventDefault();
+  // Handle Intercepted Paste/Drop/Burst from Hardened Editors
+  const handlePasteBlocked = (type: PasteViolationType, preview: string, len: number) => {
+    const attempt = createPasteAttemptLog(type, len, preview);
+    setPasteAttempts((prev) => [attempt, ...prev]);
     setCopiedWarnings((c) => c + 1);
+    setViolationModal({ isOpen: true, attempt });
     setPasteAlert({
       show: true,
       type: 'blocked',
-      message:
-        '🚫 External Paste Blocked by SkillTutor Anti-Cheat! You cannot copy-paste code or external solutions. Explain the concept in your own words, or use authorized SkillTutor hints.',
+      message: `🚫 Anti-Cheat Intercept: External ${type.replace(/_/g, ' ')} blocked (${len} chars). You must provide a conceptual explanation to unlock evaluation.`,
     });
-    setTimeout(() => setPasteAlert(null), 5500);
+    setTimeout(() => setPasteAlert(null), 6500);
 
     onShowToast({
       type: 'info',
       title: 'Anti-Paste Shield Active',
-      description: 'External copy-paste is blocked to verify your own conceptual problem-solving.',
+      description: 'External copy-paste is blocked. Please articulate the conceptual logic yourself.',
     });
   };
 
-  // Insert authorized snippet directly into answer box
-  const handleInsertAuthorizedSnippet = (snippet: string) => {
-    setStudentAnswer((prev) => {
-      const separator = prev.trim().length > 0 ? '\n\n' : '';
-      return `${prev}${separator}${snippet} `;
+  // Resolve Violation with Student's Written Explanation
+  const handleResolveViolation = (explanation: string) => {
+    if (!violationModal.attempt) return;
+    const targetId = violationModal.attempt.id;
+    setPasteAttempts((prev) =>
+      prev.map((item) =>
+        item.id === targetId
+          ? { ...item, resolved: true, studentExplanation: explanation }
+          : item
+      )
+    );
+    setViolationModal({ isOpen: false, attempt: null });
+    onShowToast({
+      type: 'success',
+      title: 'Conceptual Explanation Accepted',
+      description: 'Your explanation was logged to your integrity audit trail. Evaluation unlocked.',
     });
-    setPasteAlert({
-      show: true,
-      type: 'authorized',
-      message: '✓ Inserted authorized concept from SkillTutor Copilot into scratchpad.',
-    });
-    setTimeout(() => setPasteAlert(null), 3500);
+  };
+
+  // Insert authorized snippet directly into answer box via HMAC token
+  const handleInsertAuthorizedSnippet = (snippet: string, signedToken?: SignedSnippetToken) => {
+    const token = signedToken || generateSignedCopilotToken(snippet);
+    injectAuthorizedSnippetDirectly(
+      studentAnswer,
+      snippet,
+      token,
+      (newText) => {
+        handleStudentAnswerChange(newText);
+        setHintsUsedCount((h) => h + 1);
+        setPasteAlert({
+          show: true,
+          type: 'authorized',
+          message: `✓ Injected HMAC-verified Copilot concept (${token.token.slice(0, 10)}...). OS clipboard bypassed.`,
+        });
+        setTimeout(() => setPasteAlert(null), 4000);
+      },
+      (errMsg) => {
+        onShowToast({
+          type: 'info',
+          title: 'Direct Injection Rejected',
+          description: errMsg,
+        });
+      }
+    );
   };
 
   // Submit and evaluate conceptual answer
@@ -243,6 +342,20 @@ export function SkillTutorWorkspace({
         type: 'info',
         title: 'Empty Scratchpad',
         description: 'Please articulate your conceptual logic before submitting.',
+      });
+      return;
+    }
+
+    // Anti-Cheat Lock: Block evaluation if there are unresolved violations
+    if (unresolvedViolationsCount > 0) {
+      const firstUnresolved = pasteAttempts.find((a) => !a.resolved);
+      if (firstUnresolved) {
+        setViolationModal({ isOpen: true, attempt: firstUnresolved });
+      }
+      onShowToast({
+        type: 'info',
+        title: 'Submission Locked by Anti-Cheat',
+        description: 'You must explain your thinking for flagged paste attempts before evaluation.',
       });
       return;
     }
@@ -279,6 +392,9 @@ export function SkillTutorWorkspace({
           refusalCount,
           copiedWarnings,
           mode: activeMode,
+          pasteAttemptsCount: pasteAttempts.length,
+          integrityScore,
+          integritySignal,
         }),
       });
 
@@ -296,8 +412,11 @@ export function SkillTutorWorkspace({
           conceptualDepth: evalData.conceptualDepth,
           selfRelianceRating: evalData.selfRelianceRating,
           hintsUsed: hintsUsedCount,
-          independenceScore: evalData.telemetry?.independenceScore ?? independenceScore,
-          aiRelianceScore: evalData.telemetry?.aiRelianceScore ?? aiRelianceScore,
+          independenceScore: evalData.independenceScore ?? independenceScore,
+          aiRelianceScore: evalData.aiRelianceScore ?? aiRelianceScore,
+          integrityScore: evalData.integrityScore ?? integrityScore,
+          integritySignal: evalData.integritySignal ?? integritySignal,
+          pasteAttemptsCount: pasteAttempts.length,
           timeOnTaskSeconds: timeOnTaskSeconds,
           attemptsCount: attemptsCount + 1,
           revisionCount: revisions.length,
@@ -415,22 +534,34 @@ export function SkillTutorWorkspace({
           {/* Sub-Tab Navigation */}
           <div className="flex items-center space-x-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
             <button
+              onClick={() => setActiveSubTab('compiler')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                activeSubTab === 'compiler'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Code2 className="w-3.5 h-3.5" />
+              <span>Interactive Compiler (Python, C, C++)</span>
+            </button>
+
+            <button
               onClick={() => setActiveSubTab('solver')}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
                 activeSubTab === 'solver'
-                  ? 'bg-gradient-to-r from-indigo-500 to-sky-500 text-slate-950 shadow-md'
+                  ? 'bg-gradient-to-r from-indigo-500 to-sky-500 text-slate-950 font-bold shadow-md'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <Compass className="w-3.5 h-3.5" />
-              <span>Conceptual Challenge Solver</span>
+              <span>Conceptual Reasoner</span>
             </button>
 
             <button
               onClick={handleGenerateCareerReport}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
                 activeSubTab === 'report'
-                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-md'
+                  ? 'bg-gradient-to-r from-purple-500 to-indigo-500 text-slate-950 font-bold shadow-md'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -441,12 +572,227 @@ export function SkillTutorWorkspace({
         </div>
       </div>
 
+      {/* Main Mode 0: Interactive Compiler (Python, C, C++) with Socratic AI Guidance */}
+      {activeSubTab === 'compiler' && (
+        <div className="space-y-6 animate-in fade-in duration-150">
+          {/* Socratic Telemetry HUD Bar */}
+          <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-4 shadow-xl backdrop-blur-sm space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+              {/* Integrity Score */}
+              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                    <Shield className="w-3 h-3 text-emerald-400" />
+                    <span>Integrity</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">0-100</span>
+                </div>
+                <div className="mt-1 flex items-baseline justify-between">
+                  <span className="text-xl font-black text-emerald-400">
+                    {integrityScore}%
+                  </span>
+                  <span className="text-[10px] text-emerald-300 font-medium">Verified</span>
+                </div>
+              </div>
+
+              {/* Supported Languages */}
+              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                    <Code2 className="w-3 h-3 text-sky-400" />
+                    <span>Compilers</span>
+                  </span>
+                </div>
+                <div className="mt-1 flex items-baseline justify-between">
+                  <span className="text-sm font-bold text-sky-300">Py • C • C++</span>
+                  <span className="text-[10px] text-slate-400">Native</span>
+                </div>
+              </div>
+
+              {/* Paste Guard State */}
+              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                    <Lock className="w-3 h-3 text-emerald-400" />
+                    <span>Paste Guard</span>
+                  </span>
+                </div>
+                <div className="mt-1 flex items-baseline justify-between">
+                  <span className="text-xl font-black text-emerald-400">Active</span>
+                  <span className="text-[10px] text-slate-400">Locked</span>
+                </div>
+              </div>
+
+              {/* Hints Used */}
+              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                    <Lightbulb className="w-3 h-3 text-amber-400" />
+                    <span>Hints</span>
+                  </span>
+                </div>
+                <div className="mt-1 flex items-baseline justify-between">
+                  <span className="text-xl font-black text-amber-300">{hintsUsedCount}</span>
+                  <span className="text-[10px] text-slate-400">Stages</span>
+                </div>
+              </div>
+
+              {/* Context Summary */}
+              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col justify-between col-span-2 sm:col-span-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                    <Brain className="w-3 h-3 text-indigo-400" />
+                    <span>Active Problem Context for AI</span>
+                  </span>
+                </div>
+                <div className="mt-1 flex items-baseline justify-between">
+                  <span className="text-xs font-semibold text-slate-200 truncate">
+                    {selectedChallenge.title}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Socratic Mode Selector */}
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 pt-2 border-t border-slate-800/80">
+              <div className="flex items-center gap-2 flex-wrap text-xs">
+                <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
+                  <Sliders className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Socratic Mode:</span>
+                </span>
+                {(
+                  [
+                    { id: 'hint', label: 'Hint Mode', icon: '💡' },
+                    { id: 'socratic', label: 'Socratic Mode', icon: '🏛️' },
+                    { id: 'debug', label: 'Debug Mode', icon: '🐛' },
+                    { id: 'concept', label: 'Concept Mode', icon: '🧠' },
+                    { id: 'interview', label: 'Interview Mode', icon: '🎙️' },
+                  ] as const
+                ).map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => setActiveMode(m.id)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                      activeMode === m.id
+                        ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <span>{m.icon}</span>
+                    <span>{m.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                <span>
+                  Adaptive Calibration:{' '}
+                  <strong className="text-slate-200">
+                    {weakAreas.length > 0 ? weakAreas[0] : 'First-Principles'}
+                  </strong>{' '}
+                  tuned
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Problem Selector Bar with Add Problem Button */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+            <div className="flex items-center space-x-2 flex-wrap gap-2">
+              <BookOpen className="w-4 h-4 text-sky-400 shrink-0" />
+              <span className="text-xs font-bold text-slate-300">Active Problem:</span>
+              <select
+                value={selectedChallenge.id}
+                onChange={(e) => {
+                  const c = allChallenges.find((item) => item.id === e.target.value);
+                  if (c) {
+                    setSelectedChallenge(c);
+                    setStudentAnswer('');
+                    setCurrentSubmission(null);
+                    setHintsUsedCount(0);
+                    setTimeOnTaskSeconds(0);
+                  }
+                }}
+                className="bg-slate-950 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold outline-none focus:border-indigo-500 cursor-pointer max-w-xs sm:max-w-md truncate"
+              >
+                {allChallenges.map((ch) => (
+                  <option key={ch.id} value={ch.id}>
+                    {ch.isCustom ? '★ [Custom] ' : ''}{ch.title} ({ch.difficulty})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setIsAddProblemModalOpen(true)}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-500 via-sky-500 to-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 hover:opacity-95 shadow-md shadow-indigo-500/20 cursor-pointer transition-all"
+              >
+                <Sparkles className="w-3.5 h-3.5 fill-current" />
+                <span>+ Add / Draft Problem Statement</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Grid Layout: Compiler on Left (7 cols), Copilot on Right (5 cols) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <div className="lg:col-span-7">
+              <SkillTutorCompiler
+                activeChallenge={selectedChallenge}
+                onOpenAddProblemModal={() => setIsAddProblemModalOpen(true)}
+                onAskCopilotAboutBug={(diagnostic) => {
+                  onShowToast({
+                    type: 'info',
+                    title: 'Diagnostic Forwarded to Copilot',
+                    description: `Socratic mentor contextualized "${diagnostic.rootCause}".`,
+                  });
+                }}
+                onShowToast={(t) =>
+                  onShowToast({
+                    type: t.type === 'error' || t.type === 'warning' ? 'info' : t.type,
+                    title: t.title,
+                    description: t.description || '',
+                  })
+                }
+                onReportPasteViolation={(typeStr, previewText) => {
+                  let vType: PasteViolationType = 'clipboard_paste';
+                  if (typeStr === 'drag_drop') vType = 'drag_drop';
+                  handlePasteBlocked(vType, previewText, previewText.length);
+                }}
+                integrityScore={integrityScore}
+              />
+            </div>
+
+            <div className="lg:col-span-5 sticky top-20">
+              <SkillTutorCopilot
+                problemTitle={selectedChallenge.title}
+                problemContext={selectedChallenge.conceptualScenario}
+                topic={selectedChallenge.topic}
+                currentDraft={studentAnswer}
+                hintsUsedCount={hintsUsedCount}
+                onHintUsed={() => setHintsUsedCount((c) => c + 1)}
+                onInsertAuthorizedSnippet={handleInsertAuthorizedSnippet}
+                onShowToast={onShowToast}
+                mode={activeMode}
+                onModeChange={setActiveMode}
+                onRefusalRecorded={() => setRefusalCount((r) => r + 1)}
+                onCopiedDetected={() => setCopiedWarnings((c) => c + 1)}
+                weakAreas={weakAreas}
+                pastMistakes={pastMistakes}
+                problemStatement={selectedChallenge}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Mode 1: Conceptual Challenge Solver */}
       {activeSubTab === 'solver' && (
         <div className="space-y-6">
           {/* Socratic Telemetry HUD Bar */}
           <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-4 shadow-xl backdrop-blur-sm space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
               {/* Independence Score Gauge */}
               <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col justify-between">
                 <div className="flex items-center justify-between">
@@ -524,6 +870,51 @@ export function SkillTutorWorkspace({
                     className="h-1 rounded-full bg-gradient-to-r from-sky-400 to-indigo-500 transition-all duration-300"
                     style={{ width: `${aiRelianceScore}%` }}
                   />
+                </div>
+              </div>
+
+              {/* Anti-Cheat Integrity Gauge */}
+              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                    <Lock className="w-3 h-3 text-emerald-400" />
+                    <span>Integrity</span>
+                  </span>
+                  <span className="text-[10px] text-emerald-400 font-mono">Anti-Paste</span>
+                </div>
+                <div className="mt-1 flex items-baseline justify-between">
+                  <span
+                    className={`text-xl font-black ${
+                      integrityScore >= 90
+                        ? 'text-emerald-400'
+                        : integrityScore >= 70
+                        ? 'text-amber-400'
+                        : 'text-rose-400'
+                    }`}
+                  >
+                    {integrityScore}%
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-medium truncate max-w-[65px]">
+                    {integritySignal}
+                  </span>
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-1 mt-1.5 overflow-hidden">
+                  <div
+                    className={`h-1 rounded-full transition-all duration-300 ${
+                      integrityScore >= 90
+                        ? 'bg-emerald-400'
+                        : integrityScore >= 70
+                        ? 'bg-amber-400'
+                        : 'bg-rose-400'
+                    }`}
+                    style={{ width: `${integrityScore}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[9px] text-slate-500 mt-1 font-mono">
+                  <span>Pastes: {pasteAttempts.length}</span>
+                  <span className={unresolvedViolationsCount > 0 ? 'text-rose-400 font-bold' : 'text-slate-500'}>
+                    {unresolvedViolationsCount > 0 ? `${unresolvedViolationsCount} Pending` : 'Clean'}
+                  </span>
                 </div>
               </div>
 
@@ -671,13 +1062,13 @@ export function SkillTutorWorkspace({
 
           {/* Challenge Selector Bar */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2 flex-wrap gap-2">
               <BookOpen className="w-4 h-4 text-sky-400 shrink-0" />
               <span className="text-xs font-bold text-slate-300">Select Challenge:</span>
               <select
                 value={selectedChallenge.id}
                 onChange={(e) => {
-                  const c = SKILL_TUTOR_CHALLENGES.find((item) => item.id === e.target.value);
+                  const c = allChallenges.find((item) => item.id === e.target.value);
                   if (c) {
                     setSelectedChallenge(c);
                     setStudentAnswer('');
@@ -692,19 +1083,28 @@ export function SkillTutorWorkspace({
                 }}
                 className="bg-slate-950 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold outline-none focus:border-indigo-500 cursor-pointer max-w-xs sm:max-w-md truncate"
               >
-                {SKILL_TUTOR_CHALLENGES.map((ch) => (
+                {allChallenges.map((ch) => (
                   <option key={ch.id} value={ch.id}>
-                    {ch.title} ({ch.difficulty})
+                    {ch.isCustom ? '★ [Custom] ' : ''}{ch.title} ({ch.difficulty})
                   </option>
                 ))}
               </select>
             </div>
 
             <div className="flex items-center space-x-2">
-              <span className="text-[11px] text-slate-400">Target Role:</span>
-              <span className="px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20 text-xs font-semibold">
-                {selectedChallenge.relatedRole}
-              </span>
+              <button
+                onClick={() => setIsAddProblemModalOpen(true)}
+                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-500 to-sky-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 hover:opacity-95 shadow-md shadow-indigo-500/20 cursor-pointer transition-all"
+              >
+                <Sparkles className="w-3.5 h-3.5 fill-current" />
+                <span>+ Add / Draft Problem</span>
+              </button>
+              <div className="hidden sm:flex items-center space-x-1.5 pl-2 border-l border-slate-800">
+                <span className="text-[11px] text-slate-400">Role:</span>
+                <span className="px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20 text-xs font-semibold">
+                  {selectedChallenge.relatedRole}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -759,28 +1159,52 @@ export function SkillTutorWorkspace({
                 </div>
               </div>
 
-              {/* Anti-Paste Scratchpad Card */}
+              {/* Hardened Anti-Cheat Workspace Card */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Shield className="w-4 h-4 text-emerald-400" />
-                    <h3 className="text-sm font-bold text-slate-100">
-                      Conceptual Scratchpad (Anti-Paste Enforced)
-                    </h3>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                      <Shield className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                        <span>Anti-Cheat Hardened Editor</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono border border-emerald-500/40">
+                          {integrityScore}% Integrity
+                        </span>
+                      </h3>
+                      <p className="text-[11px] text-slate-400">
+                        Paste, drop, drag, middle-click &amp; autocomplete strictly disabled. Direct HMAC Copilot injection enabled.
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="flex items-center space-x-2 text-[11px]">
-                    <span className="text-slate-400">Hints Used:</span>
-                    <span
-                      className={`font-mono font-bold px-2 py-0.5 rounded ${
-                        hintsUsedCount === 0
-                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                          : 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                  {/* Editor Mode Selector */}
+                  <div className="flex items-center space-x-1 bg-slate-950 p-1 rounded-xl border border-slate-800 self-start sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => setEditorMode('codemirror')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        editorMode === 'codemirror'
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      {hintsUsedCount} (
-                      {hintsUsedCount === 0 ? 'Self-Reliant' : 'Guided'})
-                    </span>
+                      <Code2 className="w-3.5 h-3.5" />
+                      <span>CodeMirror Sandbox</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditorMode('conceptual')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        editorMode === 'conceptual'
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Conceptual Reasoner</span>
+                    </button>
                   </div>
                 </div>
 
@@ -794,6 +1218,33 @@ export function SkillTutorWorkspace({
                         SkillTutor is an anti-paste conceptual sandbox. Instead of writing function signatures or syntax, explain the state invariants, pointer traversals, and trade-offs in plain terms.
                       </p>
                     </div>
+                  </div>
+                )}
+
+                {/* Unresolved Violations Alert Banner */}
+                {unresolvedViolationsCount > 0 && (
+                  <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/60 text-rose-200 text-xs flex items-center justify-between gap-3 animate-in fade-in duration-150">
+                    <div className="flex items-start gap-2.5">
+                      <AlertOctagon className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold">
+                          {unresolvedViolationsCount} Flagged Paste Attempt(s) Require Conceptual Explanation
+                        </p>
+                        <p className="text-[11px] text-rose-300/80 mt-0.5">
+                          Evaluation is locked until you articulate the conceptual rationale behind the blocked insertion.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = pasteAttempts.find((a) => !a.resolved);
+                        if (target) setViolationModal({ isOpen: true, attempt: target });
+                      }}
+                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg shrink-0 cursor-pointer shadow-md transition-all"
+                    >
+                      Explain Thinking
+                    </button>
                   </div>
                 )}
 
@@ -817,26 +1268,25 @@ export function SkillTutorWorkspace({
                   </div>
                 )}
 
-                {/* The Input Textarea with Anti-Paste Event */}
-                <div className="relative">
-                  <textarea
-                    rows={8}
-                    value={studentAnswer}
-                    onChange={(e) => handleStudentAnswerChange(e.target.value)}
-                    onPaste={handlePasteIntoAnswer}
-                    placeholder="Articulate your conceptual reasoning here. Explain the invariant logic, asymptotic trade-offs, and boundary reasons in plain English. External copy-pasting is locked to ensure authentic learning."
-                    className="w-full p-4 rounded-xl bg-slate-950 border border-slate-700 focus:border-indigo-500 text-slate-100 font-sans text-xs sm:text-sm leading-relaxed outline-none transition-all placeholder:text-slate-500"
-                  />
-
-                  {/* Character & word counter */}
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 px-1">
-                    <span>
-                      {studentAnswer.trim() ? studentAnswer.trim().split(/\s+/).length : 0} words ({studentAnswer.length} chars)
-                    </span>
-                    <span className="text-slate-500 italic">
-                      Paste is restricted to SkillTutor Copilot hints only
-                    </span>
-                  </div>
+                {/* Hardened Editors Rendering */}
+                <div>
+                  {editorMode === 'codemirror' ? (
+                    <AntiCheatCodeMirror
+                      value={studentAnswer}
+                      onChange={handleStudentAnswerChange}
+                      onPasteBlocked={handlePasteBlocked}
+                      placeholder="// CodeMirror Algorithmic Scratchpad&#10;// External paste, drop, drag & middle-click are blocked.&#10;// Articulate pointer mechanics, invariants, or pseudocode manually:&#10;&#10;class Solution {&#10;  // Explain logic & invariants step-by-step&#10;}"
+                      language="typescript"
+                    />
+                  ) : (
+                    <AntiPasteConceptualEditor
+                      value={studentAnswer}
+                      onChange={handleStudentAnswerChange}
+                      onPasteBlocked={handlePasteBlocked}
+                      placeholder="Articulate your conceptual reasoning here. Explain the invariant logic, asymptotic trade-offs, and boundary reasons in plain English. External copy-pasting is locked to ensure authentic learning."
+                      rows={9}
+                    />
+                  )}
                 </div>
 
                 {/* Submit / Evaluate Action */}
@@ -855,12 +1305,21 @@ export function SkillTutorWorkspace({
                   <button
                     onClick={handleSubmitConceptualAnswer}
                     disabled={isEvaluating || !studentAnswer.trim()}
-                    className="px-6 py-2.5 bg-gradient-to-r from-indigo-500 via-sky-500 to-emerald-400 hover:brightness-110 disabled:opacity-50 text-slate-950 font-extrabold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-indigo-500/20 active:scale-95 transition-all cursor-pointer"
+                    className={`px-6 py-2.5 font-extrabold rounded-xl text-xs flex items-center gap-2 shadow-lg active:scale-95 transition-all cursor-pointer ${
+                      unresolvedViolationsCount > 0
+                        ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/30'
+                        : 'bg-gradient-to-r from-indigo-500 via-sky-500 to-emerald-400 hover:brightness-110 disabled:opacity-50 text-slate-950 shadow-indigo-500/20'
+                    }`}
                   >
                     {isEvaluating ? (
                       <>
                         <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-950 border-t-transparent animate-spin" />
                         <span>Evaluating Conceptual Depth...</span>
+                      </>
+                    ) : unresolvedViolationsCount > 0 ? (
+                      <>
+                        <Lock className="w-4 h-4" />
+                        <span>Locked: Conceptual Explanation Required ({unresolvedViolationsCount})</span>
                       </>
                     ) : (
                       <>
@@ -871,6 +1330,14 @@ export function SkillTutorWorkspace({
                   </button>
                 </div>
               </div>
+
+              {/* Anti-Paste Violation Modal */}
+              <AntiPasteViolationModal
+                isOpen={violationModal.isOpen}
+                violation={violationModal.attempt}
+                onClose={() => setViolationModal({ isOpen: false, attempt: null })}
+                onExplain={handleResolveViolation}
+              />
 
               {/* Evaluated Submission Feedback Card */}
               {currentSubmission && (
@@ -895,8 +1362,8 @@ export function SkillTutorWorkspace({
                     </div>
                   </div>
 
-                  {/* Summary Metric Badges including Telemetry Scores */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {/* Summary Metric Badges including Telemetry Scores & Anti-Cheat */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                     <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-center">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">
                         Conceptual Depth
@@ -926,10 +1393,19 @@ export function SkillTutorWorkspace({
 
                     <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-center">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                        Anti-Cheat Verified
+                        Anti-Cheat Integrity
                       </span>
-                      <span className="text-xs font-extrabold text-amber-400 mt-1 block">
-                        100% Organic
+                      <span className="text-xs font-extrabold text-amber-400 mt-1 block truncate">
+                        {currentSubmission.integrityScore ?? integrityScore}%
+                      </span>
+                    </div>
+
+                    <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-center col-span-2 sm:col-span-1">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                        Integrity Signal
+                      </span>
+                      <span className="text-xs font-extrabold text-emerald-300 mt-1 block truncate">
+                        {currentSubmission.integritySignal ?? integritySignal}
                       </span>
                     </div>
                   </div>
@@ -1018,6 +1494,7 @@ export function SkillTutorWorkspace({
                 onCopiedDetected={() => setCopiedWarnings((c) => c + 1)}
                 weakAreas={weakAreas}
                 pastMistakes={pastMistakes}
+                problemStatement={selectedChallenge}
               />
             </div>
           </div>
@@ -1107,8 +1584,20 @@ export function SkillTutorWorkspace({
                   <span className="text-[11px] font-semibold text-slate-400 block">
                     Anti-Cheat Integrity
                   </span>
-                  <span className="text-2xl font-black text-amber-400 mt-1 block">100%</span>
-                  <span className="text-[10px] text-slate-500">0 Code Pastes Detected</span>
+                  <span
+                    className={`text-2xl font-black mt-1 block ${
+                      integrityScore >= 90
+                        ? 'text-emerald-400'
+                        : integrityScore >= 70
+                        ? 'text-amber-400'
+                        : 'text-rose-400'
+                    }`}
+                  >
+                    {integrityScore}%
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    {pasteAttempts.length} Interceptions ({integritySignal})
+                  </span>
                 </div>
 
                 <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 text-center">
@@ -1215,10 +1704,72 @@ export function SkillTutorWorkspace({
                   </ul>
                 </div>
               </div>
+
+              {/* Anti-Cheat & Academic Integrity Telemetry Log */}
+              <div className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                  <div className="flex items-center space-x-2">
+                    <Lock className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                      Academic Integrity &amp; AI Reliance Audit Trail
+                    </h3>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-mono">
+                    {integrityScore}% Verified Organic Logic
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800">
+                    <span className="text-[10px] text-slate-400 block font-semibold">Intercepted External Pastes</span>
+                    <span className="text-base font-bold text-slate-100 mt-0.5 block">{pasteAttempts.length} Blocked</span>
+                    <span className="text-[10px] text-slate-500">DOM-level clipboard lockdown</span>
+                  </div>
+                  <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800">
+                    <span className="text-[10px] text-slate-400 block font-semibold">Conceptual Explanations</span>
+                    <span className="text-base font-bold text-emerald-400 mt-0.5 block">
+                      {pasteAttempts.filter(a => a.resolved).length} / {pasteAttempts.length} Re-articulated
+                    </span>
+                    <span className="text-[10px] text-slate-500">Manual student rationale</span>
+                  </div>
+                  <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800">
+                    <span className="text-[10px] text-slate-400 block font-semibold">HMAC Copilot Tokens</span>
+                    <span className="text-base font-bold text-indigo-300 mt-0.5 block">Direct Injection Active</span>
+                    <span className="text-[10px] text-slate-500">60-second cryptographically signed hints</span>
+                  </div>
+                </div>
+
+                {pasteAttempts.length > 0 && (
+                  <div className="space-y-1.5 pt-2">
+                    <span className="text-[10px] font-semibold text-slate-400 block">Recent Intercept Log:</span>
+                    <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
+                      {pasteAttempts.slice(0, 5).map((att) => (
+                        <div key={att.id} className="p-2 rounded-lg bg-slate-900 border border-slate-800/80 text-[11px] flex items-center justify-between gap-2">
+                          <div className="truncate flex-1">
+                            <span className="text-rose-400 font-mono font-semibold uppercase text-[10px] mr-1.5">
+                              [{att.type.replace(/_/g, ' ')}]
+                            </span>
+                            <span className="text-slate-300 italic truncate">"{att.attemptedTextSnippet.slice(0, 50)}..."</span>
+                          </div>
+                          <span className="text-[10px] text-slate-500 font-mono shrink-0">{att.timestamp}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
       )}
+
+      {/* Modal to Add / Draft Problem Statements */}
+      <AddProblemModal
+        isOpen={isAddProblemModalOpen}
+        onClose={() => setIsAddProblemModalOpen(false)}
+        onSaveProblem={handleSaveCustomProblem}
+        initialChallenge={selectedChallenge.isCustom ? selectedChallenge : null}
+      />
     </div>
   );
 }

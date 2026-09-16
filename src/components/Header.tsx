@@ -13,6 +13,7 @@ interface HeaderProps {
   onOpenProfile: () => void;
   onClaimDailyStreak: () => void;
   onOpenPromptLab?: (promptId?: string) => void;
+  onOpenLevelCalibrator?: () => void;
 }
 
 export function Header({
@@ -25,6 +26,7 @@ export function Header({
   onOpenProfile,
   onClaimDailyStreak,
   onOpenPromptLab,
+  onOpenLevelCalibrator,
 }: HeaderProps) {
   const currentLevelInfo =
     LEVEL_THRESHOLDS.find((l) => l.level === stats.level) || LEVEL_THRESHOLDS[0];
@@ -109,7 +111,7 @@ export function Header({
             <Tooltip
               position="bottom"
               content={
-                <div className="space-y-1 text-left min-w-[200px]">
+                <div className="space-y-1.5 text-left min-w-[210px]">
                   <div className="flex justify-between items-center text-xs font-bold text-sky-300">
                     <span>Level {stats.level}: {currentLevelInfo.title}</span>
                     <span className="font-mono text-amber-300">{stats.xp} Total XP</span>
@@ -119,15 +121,29 @@ export function Header({
                       ? 'Top tier achieved! Maximum candidate readiness.'
                       : `${Math.max(0, nextLevelThreshold - stats.xp)} more XP needed to reach next rank.`}
                   </p>
-                  <p className="text-[10px] text-slate-400">
-                    Hover: Level progress increases with quizzes, resumes, and daily tasks.
-                  </p>
+                  {onOpenLevelCalibrator && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenLevelCalibrator();
+                      }}
+                      className="w-full mt-1 px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Award className="w-3 h-3 text-amber-400" />
+                      <span>Calibrate Level from Resume / LinkedIn</span>
+                    </button>
+                  )}
                 </div>
               }
             >
               <div
                 id="xp-level-badge"
-                className="hidden md:flex flex-col px-3 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs w-44 cursor-help"
+                onClick={onOpenLevelCalibrator}
+                className={`hidden md:flex flex-col px-3 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs w-44 ${
+                  onOpenLevelCalibrator ? 'cursor-pointer hover:border-amber-500/50 hover:bg-slate-800 transition-colors' : 'cursor-help'
+                }`}
+                title={onOpenLevelCalibrator ? 'Click to calibrate level from LinkedIn & Resume' : undefined}
               >
                 <div className="flex justify-between items-center text-[11px] font-medium text-slate-300">
                   <span className="flex items-center space-x-1 text-sky-400 font-semibold">

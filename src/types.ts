@@ -80,11 +80,42 @@ export interface AtsKeyword {
   inProfile: boolean;
 }
 
+export interface SkillAssessmentItem {
+  name: string;
+  category: 'Frontend' | 'Backend' | 'Database' | 'DevOps' | 'AI/Data' | 'Language' | 'Core CS';
+  level: SkillLevel;
+  masteryScore: number;
+  reasoning?: string;
+}
+
+export interface InitialLevelAssessment {
+  level: number;
+  levelTitle: string;
+  startingXp: number;
+  confidenceScore: number;
+  candidateArchetype: string;
+  rationale: string;
+  resumeAnalysis: {
+    bulletQualityScore: number;
+    quantifiedMetricsPresence: boolean;
+    strengths: string[];
+    improvementsNeeded: string[];
+  };
+  linkedInAnalysis: {
+    headlineAssessment: string;
+    completenessScore: number;
+    recommendations: string[];
+  };
+  extractedSkills: SkillAssessmentItem[];
+  recommendedNextMilestones: string[];
+}
+
 export interface OptimizationResult {
   optimizedBullets: OptimizedBullet[];
   linkedInHeadlines: LinkedInHeadline[];
   linkedInAbout: string;
   atsKeywords: AtsKeyword[];
+  levelAssessment?: InitialLevelAssessment;
 }
 
 export interface ProjectMilestone {
@@ -203,6 +234,46 @@ export type SkillTutorMode = 'hint' | 'socratic' | 'debug' | 'concept' | 'interv
 
 export type SkillTutorHintStage = 1 | 2 | 3 | 4 | 5;
 
+export type CompilerLanguage = 'python' | 'c' | 'cpp';
+
+export interface SkillTutorTestCase {
+  id: string;
+  input: string;
+  expectedOutput: string;
+  explanation?: string;
+}
+
+export interface TestCaseEvaluation {
+  id: string | number;
+  input: string;
+  expectedOutput: string;
+  actualOutput: string;
+  passed: boolean;
+  executionTimeMs: number;
+  error?: string;
+}
+
+export interface CompilerExecutionResult {
+  success: boolean;
+  compiled: boolean;
+  language: CompilerLanguage;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  executionTimeMs: number;
+  compilationError?: string;
+  timedOut?: boolean;
+  testCaseResults?: TestCaseEvaluation[];
+}
+
+export interface CompilerAIDiagnostic {
+  rootCause: string;
+  lineReference?: string;
+  socraticHint: string;
+  problemConnection?: string;
+  guidingQuestion: string;
+}
+
 export interface SkillTutorChallenge {
   id: string;
   title: string;
@@ -216,6 +287,43 @@ export interface SkillTutorChallenge {
   weakSkillTag?: string;
   commonMistakes?: string[];
   adaptiveNotes?: string;
+  isCustom?: boolean;
+  inputFormat?: string;
+  outputFormat?: string;
+  constraints?: string;
+  testCases?: SkillTutorTestCase[];
+  starterCode?: {
+    python: string;
+    c: string;
+    cpp: string;
+  };
+}
+
+export type PasteViolationType =
+  | 'clipboard_paste'
+  | 'drag_drop'
+  | 'middle_click'
+  | 'context_menu'
+  | 'large_burst'
+  | 'beforeinput_paste';
+
+export interface SkillTutorPasteAttempt {
+  id: string;
+  timestamp: string;
+  type: PasteViolationType;
+  attemptedLength: number;
+  previewText?: string;
+  studentExplanation?: string;
+  resolved: boolean;
+}
+
+export interface SignedSnippetToken {
+  token: string;
+  snippetHash: string;
+  timestamp: number;
+  expiresAt: number;
+  signature: string;
+  nonce: string;
 }
 
 export interface SkillTutorHintLog {
@@ -244,6 +352,10 @@ export interface SkillTutorTelemetry {
   refusalGivenCount: number;
   independenceScore: number; // 0 to 100
   aiRelianceScore: number; // 0 to 100
+  pasteAttemptsCount?: number;
+  pasteViolations?: SkillTutorPasteAttempt[];
+  integrityScore?: number;
+  integritySignal?: string;
 }
 
 export interface SkillTutorMessage {
@@ -258,6 +370,7 @@ export interface SkillTutorMessage {
   conceptualAnalogy?: string;
   likelyBugLocation?: string;
   authorizedSnippet?: string;
+  signedToken?: SignedSnippetToken;
   isRefusal?: boolean;
   requiresReExplanation?: boolean;
   adaptiveNote?: string;
@@ -288,6 +401,10 @@ export interface SkillTutorSubmission {
   revisionsCount?: number;
   modeUsed?: SkillTutorMode;
   reExplanationVerified?: boolean;
+  pasteAttemptsCount?: number;
+  pasteViolations?: SkillTutorPasteAttempt[];
+  integrityScore?: number;
+  integritySignal?: string;
 }
 
 export interface SkillTutorReport {

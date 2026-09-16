@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Plus, Trash2, Check, Sparkles, BookOpen, Briefcase, GraduationCap, ArrowRight } from 'lucide-react';
+import { X, Plus, Trash2, Check, Sparkles, BookOpen, Briefcase, GraduationCap, ArrowRight, Award } from 'lucide-react';
 import { StudentProfile, StudentSkill, SkillLevel } from '../types';
 import { PRESET_PROFILES } from '../data/mockData';
 
@@ -9,6 +9,7 @@ interface ProfileModalProps {
   onClose: () => void;
   onSaveProfile: (updated: StudentProfile) => void;
   onSelectPreset: (preset: StudentProfile) => void;
+  onOpenLevelCalibrator?: () => void;
 }
 
 const COMMON_SKILL_SUGGESTIONS = [
@@ -30,6 +31,7 @@ export function ProfileModal({
   onClose,
   onSaveProfile,
   onSelectPreset,
+  onOpenLevelCalibrator,
 }: ProfileModalProps) {
   const [formData, setFormData] = useState<StudentProfile>({ ...profile });
   const [newSkillName, setNewSkillName] = useState('');
@@ -167,7 +169,22 @@ export function ProfileModal({
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
             Load Sample Profile:
           </span>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            {onOpenLevelCalibrator && (
+              <button
+                type="button"
+                id="profile-calibrate-level-btn"
+                onClick={() => {
+                  onSaveProfile(formData);
+                  onClose();
+                  onOpenLevelCalibrator();
+                }}
+                className="px-2.5 py-1 rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-bold flex items-center gap-1 transition-colors whitespace-nowrap cursor-pointer shadow-sm"
+              >
+                <Award className="w-3.5 h-3.5 text-amber-400" />
+                <span>Calibrate Level (AI)</span>
+              </button>
+            )}
             {PRESET_PROFILES.map((preset) => (
               <button
                 key={preset.label}
@@ -396,10 +413,29 @@ export function ProfileModal({
 
           {/* Experience Summary & Resume Bullets */}
           <div className="border border-slate-800 rounded-xl p-4 bg-slate-950/40 space-y-3">
-            <h3 className="font-semibold text-slate-100 text-sm">Experience Summary &amp; Current Resume Bullets</h3>
-            <p className="text-xs text-slate-400">
-              Provide your current resume bullet points so the AI Resume Optimizer can transform them into high-impact Google XYZ statements.
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="font-semibold text-slate-100 text-sm">Experience Summary &amp; Current Resume Bullets</h3>
+                <p className="text-xs text-slate-400">
+                  Provide your current resume bullet points so the AI can evaluate your level and optimize for XYZ impact.
+                </p>
+              </div>
+              {onOpenLevelCalibrator && (
+                <button
+                  type="button"
+                  id="profile-calibrate-resume-btn"
+                  onClick={() => {
+                    onSaveProfile(formData);
+                    onClose();
+                    onOpenLevelCalibrator();
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto shadow-sm"
+                >
+                  <Award className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Calibrate Level from Resume &amp; LinkedIn</span>
+                </button>
+              )}
+            </div>
             <textarea
               rows={2}
               value={formData.experienceSummary}
